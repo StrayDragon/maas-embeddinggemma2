@@ -240,19 +240,14 @@ def _load_model() -> None:
 
 
 def _warmup(model) -> None:
-    # first inference per modality drifts (lazy init); run one of each so every
-    # subsequent embed is deterministic (video det was 0.909 on 2nd call)
-    model.encode(["warmup text"])
+    # first inference per modality drifts (lazy init), and the drift RE-ARMS
+    # when modalities interleave, so warm up twice with crossed orders
     from PIL import Image
     import numpy as np
 
     buf = io.BytesIO()
     Image.new("RGB", (64, 64), (0, 0, 0)).save(buf, "PNG")
-    buf.seek(0)
-    model.encode({"image": Image.open(buf)})  # PIL object, not raw bytes
-
-    t = np.zeros(16000, dtype=np.float32)
-    model.encode({"audio": {"array": t, "sampling_rate": 16000}})
+    img = Image.open(buf)
 
     p = Path("/tmp/embg2_warmup.mp4")
     import av
@@ -264,9 +259,17 @@ def _warmup(model) -> None:
                 c.mux(pkt)
         for pkt in st.encode(None):
             c.mux(pkt)
-    model.encode({"video": str(p)})
+    t = np.zeros(16000, dtype=np.float32)
+    rounds = [
+        ["warmup text", {"image": img}, {"audio": {"array": t, "sampling_rate": 16000}}, {"video": str(p)}],
+        # crossed second pass: re-arms lazy state touched by modality mixing
+        [{"image": img}, {"video": str(p)}, "warmup text 2", {"audio": {"array": t, "sampling_rate": 16000}}],
+    ]
+    for round_ in rounds:
+        for item in round_:
+            model.encode([item] if isinstance(item, str) else item)
     p.unlink(missing_ok=True)
-    log.info("warmup done (text/image/audio/video)")
+    log.info("warmup done (x2, cross-ordered)")
 
 
 @asynccontextmanager
