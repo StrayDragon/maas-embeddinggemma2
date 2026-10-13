@@ -29,12 +29,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AliasChoices, BaseModel, Field
 
+from config import settings
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("embeddinggemma2")
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "models/embeddinggemma-2")
-DEVICE_ENV = os.environ.get("DEVICE", "auto")  # auto | cuda | rocm | cpu
-DTYPE_ENV = os.environ.get("DTYPE", "auto")  # auto | bfloat16 | float32 | float16
+MODEL_PATH: str = settings.model_path
+DEVICE_ENV = settings.device
+DTYPE_ENV = settings.dtype
 
 MRL_DIMS = [768, 512, 256, 128]
 

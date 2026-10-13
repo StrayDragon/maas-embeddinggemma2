@@ -4,7 +4,7 @@
 set shell := ["bash", "-uc"]
 py := ".venv/bin/python"
 uvbin := "uv"
-port := env_var_or_default("PORT", "50233")
+port := env_var_or_default("PORT", "8000")
 host := env_var_or_default("HOST", "0.0.0.0")
 
 # 默认：列出所有命令
@@ -12,13 +12,13 @@ default:
     @just --list
 
 # ---------------------------------------------------------------- 服务
-# 前台启动服务（Ctrl-C 停止）
-serve host=host port=port:
-    {{py}} -m uvicorn server:app --host {{host}} --port {{port}}
+# 前台启动服务（Ctrl-C 停止）；配置见 .env（cp .env.example .env）
+serve:
+    ./run.sh
 
 # 开发模式（改代码自动重载）
-dev host=host port=port:
-    {{py}} -m uvicorn server:app --host {{host}} --port {{port}} --reload
+dev:
+    RELOAD=1 ./run.sh
 
 # 健康检查 / 全量元信息
 health host="127.0.0.1" port=port:
@@ -66,6 +66,10 @@ recall: (up-guard)
 bench *args: (up-guard)
     cd sdk-test && bun run bench {{args}}
 
+# 从 config.py 重新生成 .env.example（配置元信息的唯一来源）
+env-example:
+    {{py}} scripts/gen_env_example.py
+
 # 生成合成测试素材
 assets:
     cd sdk-test && ../{{py}} make_assets.py
@@ -81,7 +85,8 @@ setup:
       "torch==2.14.1+rocm7.2" "torchvision==0.29.1+rocm7.2" "torchcodec==0.17.0+cpu"
     grep -vE '^(#|torch==|torchvision==|torchcodec==)' requirements.txt | grep -v '^$' > /tmp/req-rest.txt
     {{uvbin}} pip install --python {{py}} -r /tmp/req-rest.txt
-    @echo "ok — just check 验证"
+    cp -n .env.example .env || true
+    @echo "ok — 编辑 .env 后 just serve；just check 验证"
 
 # 按 requirements 全量对齐已有 venv
 sync:

@@ -1,5 +1,6 @@
 """Smoke test: all modalities of EmbeddingGemma 2 on ROCm."""
 import io
+import os
 import time
 import numpy as np
 import torch
@@ -7,7 +8,7 @@ import av
 import soundfile as sf
 from PIL import Image, ImageDraw
 
-MODEL = "models/embeddinggemma-2"
+MODEL = os.environ.get("MODEL_PATH", "models/embeddinggemma-2")
 
 def make_video(path, seconds=6, fps=2, size=(224, 160)):
     with av.open(path, "w") as c:
