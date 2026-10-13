@@ -20,6 +20,9 @@ DTYPE=bfloat16 ./run.sh     # 试 bf16（本机 ROCM 栈 batch 推理 bf16 有�
 
 ## API
 
+> **前端 / TS 集成必读**：[`sdk-test/INTEGRATION.md`](sdk-test/INTEGRATION.md) —— 三入口选型决策树、ai-sdk/openai/DashScope 三种形状的实测结论与坑。
+> 一句话：文本 RAG 用 SDK 打 `/v1/embeddings`；多模态与跨模态用 fetch 打 `/embed/st`；阿里云迁移走 DashScope 兼容路径；三者同语义空间。
+
 ### POST /embed/st（sentence-transformers 风格, `/embed` 为别名）
 
 ```jsonc
