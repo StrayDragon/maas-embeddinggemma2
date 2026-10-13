@@ -384,12 +384,13 @@ def openai_models():
         {
             "id": "embeddinggemma-2",
             "object": "model",
+            "created": int(time.time()),
             "owned_by": "embeddinggemma2-serve",
             "max_input_tokens": 8192,
             "task_suffixes": sorted(S["prompts"]),
         }
     ]
-    data += [{"id": f"embeddinggemma-2:{n}", "object": "model", "owned_by": "embeddinggemma2-serve"} for n in sorted(S["prompts"])]
+    data += [{"id": f"embeddinggemma-2:{n}", "object": "model", "created": int(time.time()), "owned_by": "embeddinggemma2-serve"} for n in sorted(S["prompts"])]
     return {"object": "list", "data": data}
 
 
