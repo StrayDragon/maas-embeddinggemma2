@@ -25,7 +25,7 @@ from typing import Any, Union
 
 import numpy as np
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -216,6 +216,38 @@ def _prepare_inputs(user_input: Any, run_dir: Path) -> list[Any]:
 S: dict[str, Any] = {}
 
 
+def _renormalize(emb: "np.ndarray") -> "np.ndarray":
+    """L2-normalize rows; all-zero rows stay zero (matches ST eps-normalize)."""
+    norms = np.linalg.norm(emb, axis=-1, keepdims=True)
+    return np.divide(emb, norms, out=np.zeros_like(emb), where=norms > 0)
+
+
+def _encode_finite(model, inputs: list, kwargs: dict) -> "np.ndarray":
+    """encode + finite-value guard.
+
+    This box's ROCm stack has a history of attention numerics flaking
+    (see README: bf16 batched-attention NaNs); fp32+sdpa can still emit
+    NaN/Inf for specific token sequences in long-lived processes, which
+    later blows up JSON serialization (starlette dumps with allow_nan=False).
+    Non-finite output is re-encoded on CPU (authoritative numerics); if that
+    still yields non-finite values, sanitize and re-normalize as last resort.
+    Clients always receive finite, JSON-safe embeddings.
+    """
+    emb = np.asarray(model.encode(inputs, **kwargs))
+    if np.isfinite(emb).all():
+        return emb
+    n_bad = int((~np.isfinite(emb)).sum())
+    log.warning("non-finite embedding on %s (%d/%d values); re-encoding on cpu: inputs=%r",
+                S.get("device"), n_bad, emb.size, [str(x)[:60] for x in inputs])
+    cpu_kwargs = {**kwargs, "device": "cpu"}
+    emb = np.asarray(model.encode(inputs, **cpu_kwargs))
+    if not np.isfinite(emb).all():
+        emb = np.nan_to_num(emb, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
+        if kwargs.get("normalize_embeddings", True):
+            emb = _renormalize(emb)
+    return emb
+
+
 def _load_model() -> None:
     from sentence_transformers import SentenceTransformer
 
@@ -297,6 +329,25 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Catch-all: readable JSON 500 (with trace id) instead of a bare text 500.
+
+    Full traceback lands in the server log under the same trace id.
+    """
+    trace_id = uuid.uuid4().hex[:12]
+    log.exception("unhandled error [%s] on %s %s", trace_id, request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": f"{type(exc).__name__}: {exc}",
+            "path": request.url.path,
+            "method": request.method,
+            "trace_id": trace_id,
+        },
+    )
+
+
 @app.get("/health")
 def health():
     out: dict[str, Any] = {
@@ -368,7 +419,7 @@ def embed(req: EmbedRequest):
         t0 = time.perf_counter()
         try:
             with S["lock"]:
-                emb = model.encode(prepared, **kwargs)
+                emb = _encode_finite(model, prepared, kwargs)
         except BadInput as e:
             raise HTTPException(400, str(e)) from e
         except Exception as e:  # noqa: BLE001
@@ -459,15 +510,28 @@ def openai_embeddings(req: OpenAIEmbedRequest):
     if req.dimensions:
         kwargs["truncate_dim"] = req.dimensions
 
-    with S["lock"]:
-        emb = np.asarray(S["model"].encode(texts, **kwargs))
+    try:
+        with S["lock"]:
+            emb = _encode_finite(S["model"], texts, kwargs)
+        n_tokens = _count_tokens(texts)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("v1 embeddings failed")
+        # readable 500: never a bare 'Internal Server Error' — clients get the
+        # exception, the task steering and an input digest for reproduction
+        raise HTTPException(500, {
+            "error": f"{type(e).__name__}: {e}",
+            "task": prompt_name or "(none)",
+            "inputs": [t[:120] for t in texts],
+            "hint": "full traceback in server log",
+        }) from e
 
     if req.encoding_format == "base64":
         out = [base64.b64encode(np.asarray(v, dtype="<f4").tobytes()).decode() for v in emb]
     else:
         out = emb.tolist()
 
-    n_tokens = _count_tokens(texts)
     return {
         "object": "list",
         "data": [{"object": "embedding", "index": i, "embedding": e} for i, e in enumerate(out)],
@@ -664,7 +728,7 @@ def dashscope_multimodal_embedding(req: DashscopeRequest):
             kwargs["truncate_dim"] = dimension
         try:
             with S["lock"]:
-                emb = np.asarray(S["model"].encode(inputs, **kwargs))
+                emb = _encode_finite(S["model"], inputs, kwargs)
         except Exception as e:  # noqa: BLE001
             log.exception("dashscope encode failed")
             return _ds_error(500, "InternalError.Algo", f"embedding failed: {type(e).__name__}: {e}")

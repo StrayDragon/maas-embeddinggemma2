@@ -109,5 +109,37 @@ function cosine(a: number[], b: number[]): number {
   }
 }
 
+// 7) regression: CJK task-prefix forms (client-side prefix; former NaN->500)
+{
+  const { embeddings } = await embedMany({
+    model: model("embeddinggemma-2") as never,
+    values: [
+      "task: search result | query: 对数组按分数排序并取前 K 个的函数",
+      "task: search result | query: 按分数从高到低取前若干个结果",
+      "对数组按分数排序并取前 K 个的函数", // bare control
+    ],
+  });
+  const finite = embeddings.every((e) => e.every((x) => Number.isFinite(x)));
+  check(
+    "regression/cjk-task-prefix",
+    embeddings.length === 3 && finite,
+    `n=${embeddings.length} finite=${finite}`,
+  );
+}
+
+// 8) regression: trigger strings via task-steered model ids (:SearchQuery/:Document)
+{
+  const q = await embed({
+    model: model("embeddinggemma-2:SearchQuery") as never,
+    value: "对数组按分数排序并取前 K 个的函数",
+  });
+  const d = await embed({
+    model: model("embeddinggemma-2:Document") as never,
+    value: "按分数从高到低取前若干个结果",
+  });
+  const ok = q.embedding.every(Number.isFinite) && d.embedding.every(Number.isFinite);
+  check("regression/suffix-steer-cjk", q.embedding.length === 768 && ok, `finite=${ok}`);
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

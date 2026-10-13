@@ -120,7 +120,7 @@ await fetch(DS, {
 1. **PCM 位宽**: 16-bit PCM 按 float32 解释 → 值域错乱。`Int16Array` 除以 32768,或直接传 `Float32Array`。
 2. **SDK 吞错误详情**: 断言/日志用 `error.statusCode`,别 grep message。
 3. **模型名后缀是约定**: `:Document` 等;写错 → 400 并列出合法值。
-4. **确定性**: 服务启动时已对各模态 warmup,同输入重复编码 cos=1.0;若自建 pipeline 抖动,先查是否混用 bf16(本机 ROCM 栈 bf16 批量注意力偶发 NaN,服务默认 fp32)。
+4. **确定性**: 服务启动时已对各模态 warmup,同输入重复编码 cos=1.0;若自建 pipeline 抖动,先查是否混用 bf16(本机 ROCM 栈 bf16 批量注意力偶发 NaN,服务默认 fp32)。fp32 长跑进程下个别 token 序列仍可能整批 NaN(2026-10-13,前缀中文串触发):服务端已在 `_encode_finite` 兜底(GPU NaN → CPU 重算 → 清洗),并保证 500 永远是可读 JSON(error/trace_id),不再是裸文本。
 5. **node 跑 TS**: node ≥24 `--experimental-strip-types`;bun 更省事。
 6. **`(null): No such file...`**: ROCm 用户态初始化噪音,无害,忽略。
 

@@ -119,6 +119,26 @@ def main() -> None:
         code, resp = _post("/embed", payload)
         print(f"{note}: {code} {str(resp.get('detail', ''))[:70]}")
 
+    # --- regression: CJK + task prefix on /v1/embeddings (former NaN->500) ---
+    trig = "对数组按分数排序并取前 K 个的函数"
+    trig2 = "按分数从高到低取前若干个结果"
+    for note, payload in [
+        ("v1 client-prefix     ", {"model": "embeddinggemma-2", "input": f"task: search result | query: {trig}"}),
+        ("v1 suffix :SearchQuery", {"model": "embeddinggemma-2:SearchQuery", "input": trig2}),
+        ("v1 bare              ", {"model": "embeddinggemma-2", "input": trig}),
+    ]:
+        code, resp = _post("/v1/embeddings", payload)
+        ok = code == 200 and np.isfinite(np.asarray(resp["data"][0]["embedding"])).all()
+        print(f"{note}: {code} finite={ok}")
+        assert ok, resp
+    code, resp = _post("/v1/embeddings", {
+        "model": "embeddinggemma-2", "encoding_format": "base64",
+        "input": f"task: search result | query: {trig}",
+    })
+    vals = np.frombuffer(base64.b64decode(resp["data"][0]["embedding"]), dtype="<f4")
+    print(f"v1 base64             : {code} finite={bool(np.isfinite(vals).all())}")
+    assert code == 200 and np.isfinite(vals).all()
+
     print("ALL OK")
 
 
