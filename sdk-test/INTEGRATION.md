@@ -75,5 +75,6 @@ const emb = await fetch("http://host:8000/embed", {
 ```bash
 bun run test        # SDK 语义层 6 项
 bun run test:mm     # 全模态语义 8 项(合成素材,含颜色/音高/跨模态断言)
+bun run client      # 全接口×全选项×双SDK×三方一致性 34 项
 bun run real        # 真实素材: 丢进 assets/ 或 bun run real /path/*(结构+确定性+自检索)
 ```

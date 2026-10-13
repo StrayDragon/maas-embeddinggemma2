@@ -6,10 +6,12 @@
     "test": "bun run test.ts",
     "test:mm": "bun run multimodal.ts",
     "real": "bun run real.ts",
-    "bench": "bun run bench.ts"
+    "bench": "bun run bench.ts",
+    "client": "bun run client.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.92",
-    "ai": "^7.0.138"
+    "ai": "^7.0.138",
+    "openai": "^7.32.0"
   }
 }

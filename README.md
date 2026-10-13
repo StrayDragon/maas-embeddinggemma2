@@ -123,7 +123,8 @@ vec = r.json()["embeddings"][0]
 ## 测试
 
 ```bash
-.venv/bin/python test_api.py    # 全模态 + 批量 + 截断 + 错误路径
+.venv/bin/python test_api.py    # HTTP 全模态 + 批量 + 截断 + 错误路径
+cd sdk-test && bun run client    # TS 全接口/双SDK(openai+ai)/一致性 34 项
 ```
 
 ## 环境重建（可复现）
