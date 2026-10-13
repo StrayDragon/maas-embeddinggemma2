@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import io
 import logging
 import os
 import re
@@ -233,9 +234,43 @@ def _load_model() -> None:
     log.info("ready in %.1fs (dim=%d, %d prompt presets)", time.perf_counter() - t0, S["dim"], len(S["prompts"]))
 
 
+def _warmup(model) -> None:
+    # first inference per modality drifts (lazy init); run one of each so every
+    # subsequent embed is deterministic (video det was 0.909 on 2nd call)
+    model.encode(["warmup text"])
+    from PIL import Image
+    import numpy as np
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (0, 0, 0)).save(buf, "PNG")
+    buf.seek(0)
+    model.encode({"image": Image.open(buf)})  # PIL object, not raw bytes
+
+    t = np.zeros(16000, dtype=np.float32)
+    model.encode({"audio": {"array": t, "sampling_rate": 16000}})
+
+    p = Path("/tmp/embg2_warmup.mp4")
+    import av
+    with av.open(str(p), "w") as c:
+        st = c.add_stream("libx264", rate=8)
+        st.width, st.height, st.pix_fmt = 64, 64, "yuv420p"
+        for _i in range(8):
+            for pkt in st.encode(av.VideoFrame.from_image(Image.new("RGB", (64, 64), (0, 0, 0)))):
+                c.mux(pkt)
+        for pkt in st.encode(None):
+            c.mux(pkt)
+    model.encode({"video": str(p)})
+    p.unlink(missing_ok=True)
+    log.info("warmup done (text/image/audio/video)")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     _load_model()
+    try:
+        _warmup(S["model"])
+    except Exception:  # noqa: BLE001
+        log.exception("warmup failed (continuing)")
     yield
 
 
