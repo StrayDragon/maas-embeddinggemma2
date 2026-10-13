@@ -214,6 +214,10 @@ def _prepare_inputs(user_input: Any, run_dir: Path) -> list[Any]:
 # ---------------------------------------------------------------- app / lifecycle
 
 S: dict[str, Any] = {}
+# encode path counters: total GPU encodes, CPU re-encodes (finite-guard fired),
+# sanitized batches. surfaced via /health; a high re-encode rate means the
+# ROCm fp32+sdpa numeric flake is back and only being contained.
+S["enc_stats"] = {"encodes": 0, "cpu_reencode": 0, "sanitized": 0}
 
 
 def _renormalize(emb: "np.ndarray") -> "np.ndarray":
@@ -234,14 +238,17 @@ def _encode_finite(model, inputs: list, kwargs: dict) -> "np.ndarray":
     Clients always receive finite, JSON-safe embeddings.
     """
     emb = np.asarray(model.encode(inputs, **kwargs))
+    S["enc_stats"]["encodes"] += 1
     if np.isfinite(emb).all():
         return emb
     n_bad = int((~np.isfinite(emb)).sum())
+    S["enc_stats"]["cpu_reencode"] += 1
     log.warning("non-finite embedding on %s (%d/%d values); re-encoding on cpu: inputs=%r",
                 S.get("device"), n_bad, emb.size, [str(x)[:60] for x in inputs])
     cpu_kwargs = {**kwargs, "device": "cpu"}
     emb = np.asarray(model.encode(inputs, **cpu_kwargs))
     if not np.isfinite(emb).all():
+        S["enc_stats"]["sanitized"] += 1
         emb = np.nan_to_num(emb, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
         if kwargs.get("normalize_embeddings", True):
             emb = _renormalize(emb)
@@ -267,6 +274,7 @@ def _load_model() -> None:
         dim=model.get_embedding_dimension(),
         prompts=dict(model.prompts or {}),
         lock=threading.Lock(),
+        started_mono=time.monotonic(),
     )
     log.info("ready in %.1fs (dim=%d, %d prompt presets)", time.perf_counter() - t0, S["dim"], len(S["prompts"]))
 
@@ -356,6 +364,8 @@ def health():
         "device": S.get("device"),
         "dtype": S.get("dtype"),
         "dimension": S.get("dim"),
+        "uptime_s": round(time.monotonic() - S["started_mono"], 1) if "started_mono" in S else None,
+        "encode_stats": dict(S.get("enc_stats", {})),
     }
     if S.get("device") == "cuda":
         out["gpu"] = torch.cuda.get_device_name(0)
