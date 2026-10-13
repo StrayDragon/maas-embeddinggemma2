@@ -14,7 +14,7 @@ def main() -> None:
 
     p = argparse.ArgumentParser()
     p.add_argument("text")
-    p.add_argument("--url", default="http://127.0.0.1:8000/embed")
+    p.add_argument("--url", default="http://127.0.0.1:50233/embed")
     p.add_argument("--prompt-name", default="SearchQuery")
     p.add_argument("--dim", type=int, default=256)
     a = p.parse_args()

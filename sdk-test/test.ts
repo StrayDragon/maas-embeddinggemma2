@@ -5,7 +5,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, embedMany } from "ai";
 
-const BASE = process.env.BASE_URL ?? "http://127.0.0.1:8000/v1";
+const BASE = process.env.BASE_URL ?? "http://127.0.0.1:50233/v1";
 
 const openai = createOpenAI({ baseURL: BASE, apiKey: "local" });
 // ai<=4 provider name vs newer: prefer textEmbeddingModel, fall back to embedding

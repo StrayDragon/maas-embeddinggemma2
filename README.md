@@ -10,7 +10,7 @@ EmbeddingGemma 2 (740M) 全模态 embedding 服务 —— 文本 / 图片 / 音�
 ## 运行
 
 ```bash
-./run.sh                    # 默认 0.0.0.0:8000, 日志 server.log
+./run.sh                    # 默认 0.0.0.0:50233, 日志 server.log
 PORT=9000 ./run.sh          # 改端口
 DEVICE=cpu ./run.sh         # 强制 CPU
 DTYPE=bfloat16 ./run.sh     # 试 bf16（本机 ROCM 栈 batch 推理 bf16 有随机 NaN, 故默认 fp32）
@@ -30,7 +30,7 @@ just env-example        # 改过 config.py 后重新生成 example
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `MODEL_PATH` | `models/embeddinggemma-2` | 权重路径或 HF repo id |
-| `HOST`/`PORT` | `0.0.0.0`/`8000` | 服务绑定 |
+| `HOST`/`PORT` | `0.0.0.0`/`50233` | 服务绑定 |
 | `DEVICE` | `auto` | `cuda`/`cpu` 强制覆盖 |
 | `DTYPE` | `auto` | `bfloat16`/`float32` 强制覆盖 |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
@@ -80,7 +80,7 @@ just env-example        # 改过 config.py 后重新生成 example
 - 所有向量与 `/embed/st` 同一语义空间,可直接混用于跨模态检索
 
 ```bash
-curl -s localhost:8000/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding \
+curl -s localhost:50233/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding \
   -H 'Content-Type: application/json' \
   -d '{"model":"embeddinggemma-2","input":{"contents":[{"text":"一只猫"},{"image":"data:image/png;base64,..."}]},"parameters":{"dimension":256}}'
 ```
@@ -99,7 +99,7 @@ curl -s localhost:8000/api/v1/services/embeddings/multimodal-embedding/multimoda
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, embedMany } from "ai";
 
-const openai = createOpenAI({ baseURL: "http://localhost:8000/v1", apiKey: "local" });
+const openai = createOpenAI({ baseURL: "http://localhost:50233/v1", apiKey: "local" });
 
 const { embedding } = await embed({
   model: openai.textEmbeddingModel("embeddinggemma-2"),
@@ -133,15 +133,15 @@ bun run test:mm     # 全模态端到端: 图/音/视频/交错/混排批次/bas
 
 ```bash
 # 文本, 256 维
-curl -s localhost:8000/embed -H 'Content-Type: application/json' \
+curl -s localhost:50233/embed -H 'Content-Type: application/json' \
   -d '{"input":"hello","prompt_name":"SearchQuery","truncate_dim":256}'
 
 # 图文混合
-curl -s localhost:8000/embed -H 'Content-Type: application/json' \
+curl -s localhost:50233/embed -H 'Content-Type: application/json' \
   -d '{"input":{"text":"a red mug  IMAGE_TOKEN ","image":{"b64":"<base64>"}}}'
 
 # 批量: 文本+多模态混排
-curl -s localhost:8000/embed -H 'Content-Type: application/json' \
+curl -s localhost:50233/embed -H 'Content-Type: application/json' \
   -d '{"input":["plain text", {"text":"doc", "image":["/tmp/a.jpg"]}], "prompt_name":"Document"}'
 ```
 
@@ -149,7 +149,7 @@ Python:
 
 ```python
 import requests, base64
-r = requests.post("http://localhost:8000/embed", json={
+r = requests.post("http://localhost:50233/embed", json={
     "input": [{"text": "q", "image": {"path": "/tmp/a.jpg"}}],
     "prompt_name": "SearchQuery",
 })
@@ -175,7 +175,7 @@ uv pip install --python .venv/bin/python \
   "torch==2.14.1+rocm7.2" "torchvision==0.29.1+rocm7.2" "torchcodec==0.17.0+cpu"
 # 其余锁定依赖:
 uv pip install --python .venv/bin/python -r <(grep -vE '^#|^torch==|^torchvision==|^torchcodec==' requirements.txt)
-./run.sh && curl localhost:8000/health   # device 应为 cuda
+./run.sh && curl localhost:50233/health   # device 应为 cuda
 ```
 
 纯 CPU 机器: 三件套换 `--index-url https://download.pytorch.org/whl/cpu` 的 cpu 版即可,`DEVICE=cpu` 或自动回退。

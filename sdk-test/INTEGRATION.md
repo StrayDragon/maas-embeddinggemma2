@@ -36,7 +36,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, embedMany } from "ai";
 
-const openai = createOpenAI({ baseURL: "http://host:8000/v1", apiKey: "local" });
+const openai = createOpenAI({ baseURL: "http://host:50233/v1", apiKey: "local" });
 
 await embed({ model: openai.textEmbeddingModel("embeddinggemma-2"), value: "hello" });
 await embedMany({
@@ -61,7 +61,7 @@ await embed({
 
 ```ts
 import OpenAI from "openai";
-const openai = new OpenAI({ baseURL: "http://host:8000/v1", apiKey: "local", maxRetries: 1 });
+const openai = new OpenAI({ baseURL: "http://host:50233/v1", apiKey: "local", maxRetries: 1 });
 
 const r = await openai.embeddings.create({ model: "embeddinggemma-2:Document", input: ["a", "b"] });
 const b64 = await openai.embeddings.create({ model: "embeddinggemma-2", input: "x", encoding_format: "base64" });
@@ -71,7 +71,7 @@ const b64 = await openai.embeddings.create({ model: "embeddinggemma-2", input: "
 ## 3. 多模态/跨模态(`POST /embed/st`)
 
 ```ts
-const emb = await fetch("http://host:8000/embed/st", {
+const emb = await fetch("http://host:50233/embed/st", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -96,7 +96,7 @@ const emb = await fetch("http://host:8000/embed/st", {
 
 ```ts
 // 只改 host;路径与百炼一致 → 现有 dashscope 封装/fetch 层直接换 base
-const DS = "http://host:8000/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding";
+const DS = "http://host:50233/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding";
 await fetch(DS, {
   method: "POST",
   headers: { "Content-Type": "application/json", Authorization: "Bearer anything" },

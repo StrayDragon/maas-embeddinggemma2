@@ -4,7 +4,7 @@
 set shell := ["bash", "-uc"]
 py := ".venv/bin/python"
 uvbin := "uv"
-port := env_var_or_default("PORT", "8000")
+port := env_var_or_default("PORT", "50233")
 host := env_var_or_default("HOST", "0.0.0.0")
 
 # 默认：列出所有命令

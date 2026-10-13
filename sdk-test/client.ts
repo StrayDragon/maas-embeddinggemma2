@@ -6,7 +6,7 @@ import OpenAI from "openai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed as aiEmbed, embedMany as aiEmbedMany } from "ai";
 
-const BASE = "http://127.0.0.1:8000";
+const BASE = "http://127.0.0.1:50233";
 const V1 = `${BASE}/v1`;
 
 let failures = 0;

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     """Bind address for the HTTP server (used by run.sh / just serve)."""
 
-    port: int = 8000
+    port: int = 50233
     """TCP port for the HTTP server (used by run.sh / just serve)."""
 
     device: str = "auto"

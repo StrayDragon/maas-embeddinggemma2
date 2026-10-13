@@ -8,7 +8,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
-const BASE = "http://127.0.0.1:8000";
+const BASE = "http://127.0.0.1:50233";
 const ASSETS = new URL("./assets", import.meta.url).pathname;
 const SYNTH = new Set(["blue_bg.png", "blue_clip.mp4", "red_bg.png", "tone440.wav", "tone880.wav"]);
 

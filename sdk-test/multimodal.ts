@@ -5,7 +5,7 @@
  *   ../.venv/bin/python make_assets.py   # once
  *   bun run multimodal
  */
-const BASE = "http://127.0.0.1:8000";
+const BASE = "http://127.0.0.1:50233";
 const A = new URL("./assets/", import.meta.url).pathname;
 
 let failures = 0;

@@ -5,5 +5,5 @@ cd "$(dirname "$0")"
 set -a; [ -f .env ] && . ./.env; set +a
 exec .venv/bin/python -m uvicorn server:app \
   --host "${HOST:-0.0.0.0}" \
-  --port "${PORT:-8000}" \
+  --port "${PORT:-50233}" \
   ${RELOAD:+--reload}
