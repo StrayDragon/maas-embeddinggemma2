@@ -1,0 +1,431 @@
+"""EmbeddingGemma 2 embedding server — text / image / audio / video / interleaved multimodal.
+
+Run:  ./run.sh          (env: HOST PORT DEVICE DTYPE MODEL_PATH)
+"""
+from __future__ import annotations
+
+import base64
+import binascii
+import logging
+import os
+import re
+import tempfile
+import threading
+import time
+import urllib.parse
+import urllib.request
+from contextlib import asynccontextmanager
+from math import gcd
+from pathlib import Path
+from typing import Any, Union
+
+import numpy as np
+import torch
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import AliasChoices, BaseModel, Field
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("embeddinggemma2")
+
+MODEL_PATH = os.environ.get("MODEL_PATH", "models/embeddinggemma-2")
+DEVICE_ENV = os.environ.get("DEVICE", "auto")  # auto | cuda | rocm | cpu
+DTYPE_ENV = os.environ.get("DTYPE", "auto")  # auto | bfloat16 | float32 | float16
+
+MRL_DIMS = [768, 512, 256, 128]
+
+# ---------------------------------------------------------------- device / dtype
+
+
+def _resolve_device() -> str:
+    if DEVICE_ENV != "auto":
+        return DEVICE_ENV
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _resolve_dtype(device: str) -> torch.dtype:
+    names = {
+        "bfloat16": torch.bfloat16, "bf16": torch.bfloat16,
+        "float32": torch.float32, "fp32": torch.float32,
+        "float16": torch.float16, "fp16": torch.float16,
+    }
+    if DTYPE_ENV != "auto":
+        if DTYPE_ENV not in names:
+            raise ValueError(f"DTYPE must be one of {sorted(names)} or 'auto'")
+        return names[DTYPE_ENV]
+    # model card prefers bfloat16, but on this ROCM/gfx1151 stack bf16 produces
+    # NaNs in batched attention (flaky, worst with sdpa). float32 is rock-solid
+    # and still fast (~25ms/batch on the 8060S). set DTYPE=bfloat16 to use bf16.
+    if device != "cpu" and DTYPE_ENV == "auto":
+        return torch.float32
+    if device != "cpu" and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float32
+
+
+# ---------------------------------------------------------------- media resolution
+
+_DATAURI_RE = re.compile(r"^data:[^;,]+;base64,(.*)$", re.S)
+_URL_RE = re.compile(r"^https?://", re.I)
+_DEFAULT_SUFFIX = {"image": ".png", "audio": ".wav", "video": ".mp4"}
+_KEY_ALIASES = {"images": "image", "texts": "text", "audios": "audio", "videos": "video"}
+
+
+class BadInput(ValueError):
+    pass
+
+
+def _write_tmp(dir_: Path, name: str, data: bytes) -> str:
+    p = dir_ / name
+    p.write_bytes(data)
+    return str(p)
+
+
+def _b64_to_file(spec: str, kind: str, dir_: Path, n: int) -> str:
+    m = _DATAURI_RE.match(spec.strip())
+    raw = m.group(1) if m else spec
+    try:
+        data = base64.b64decode(re.sub(r"\s", "", raw), validate=False)
+    except (binascii.Error, ValueError) as e:
+        raise BadInput(f"invalid base64 for {kind} #{n}: {e}") from e
+    if not data:
+        raise BadInput(f"empty base64 payload for {kind} #{n}")
+    return _write_tmp(dir_, f"{kind}_{n}{_DEFAULT_SUFFIX[kind]}", data)
+
+
+def _url_to_file(url: str, kind: str, dir_: Path, n: int) -> str:
+    suffix = Path(urllib.parse.urlparse(url).path).suffix
+    suffix = suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,5}", suffix or "") else _DEFAULT_SUFFIX[kind]
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r:
+            data = r.read()
+    except Exception as e:  # noqa: BLE001
+        raise BadInput(f"failed to fetch {kind} url #{n} ({url}): {e}") from e
+    return _write_tmp(dir_, f"{kind}_res{n}{suffix}", data)
+
+
+def _audio_from_array(d: dict, n: int) -> dict:
+    """{array: [...], sampling_rate: int} -> mono 16 kHz float32 (resampled if needed)."""
+    try:
+        arr = np.asarray(d["array"], dtype=np.float32)
+    except Exception as e:  # noqa: BLE001
+        raise BadInput(f"audio #{n}: bad array: {e}") from e
+    sr = int(d.get("sampling_rate", 16000))
+    if arr.ndim == 2:  # (samples, channels) -> mono
+        arr = arr.mean(axis=1)
+    if arr.ndim != 1:
+        raise BadInput(f"audio #{n}: array must be 1-D mono or (samples, channels)")
+    if sr <= 0:
+        raise BadInput(f"audio #{n}: bad sampling_rate {sr}")
+    if sr != 16000:
+        g = gcd(sr, 16000)
+        up, down = 16000 // g, sr // g
+        try:
+            from scipy.signal import resample_poly
+
+            arr = resample_poly(arr, up, down).astype(np.float32)
+        except ImportError:
+            idx = np.linspace(0, len(arr) - 1, max(1, int(len(arr) * 16000 / sr)))
+            arr = np.interp(idx, np.arange(len(arr)), arr).astype(np.float32)
+    return {"array": arr, "sampling_rate": 16000}
+
+
+def _resolve_media(x: Any, kind: str, dir_: Path, n: int) -> Any:
+    """path | url | b64/dataURI str | {path|url|b64} | {array,sampling_rate}(audio) -> loader-ready value"""
+    if isinstance(x, bool) or isinstance(x, (int, float)):
+        raise BadInput(f"{kind} #{n}: scalar is not a valid media reference")
+    if isinstance(x, str):
+        s = x.strip()
+        if _URL_RE.match(s):
+            return _url_to_file(s, kind, dir_, n)
+        if Path(s).exists():
+            return s
+        if len(s) >= 24:  # assume bare base64
+            return _b64_to_file(s, kind, dir_, n)
+        raise BadInput(f"{kind} #{n}: not a path/url/base64: {s[:80]!r}")
+    if isinstance(x, dict):
+        if "path" in x:
+            p = str(x["path"])
+            if not Path(p).exists():
+                raise BadInput(f"{kind} #{n}: path not found: {p}")
+            return p
+        if "url" in x:
+            return _url_to_file(str(x["url"]), kind, dir_, n)
+        for k in ("b64", "base64", "data"):
+            if k in x:
+                return _b64_to_file(str(x[k]), kind, dir_, n)
+        if kind == "audio" and "array" in x:
+            return _audio_from_array(x, n)
+        raise BadInput(
+            f"{kind} #{n}: dict needs 'path' | 'url' | 'b64'" + (" | 'array'+sampling_rate" if kind == "audio" else "")
+        )
+    raise BadInput(f"{kind} #{n}: unsupported type {type(x).__name__}")
+
+
+def _prepare_item(item: Any, dir_: Path, ctr: dict) -> Any:
+    if isinstance(item, str):
+        return item
+    if not isinstance(item, dict):
+        raise BadInput(f"input items must be strings or objects, got {type(item).__name__}")
+    out: dict[str, Any] = {}
+    for raw_k, v in item.items():
+        k = _KEY_ALIASES.get(str(raw_k).lower(), str(raw_k).lower())
+        if k == "text":
+            ok = isinstance(v, str) or (isinstance(v, list) and all(isinstance(t, str) for t in v))
+            if not ok:
+                raise BadInput("'text' must be a string or list of strings")
+            out["text"] = v
+        elif k in ("image", "audio", "video"):
+            if isinstance(v, list):
+                seq = []
+                for x in v:
+                    ctr[k] = ctr.get(k, 0) + 1
+                    seq.append(_resolve_media(x, k, dir_, ctr[k]))
+                out[k] = seq
+            else:
+                ctr[k] = ctr.get(k, 0) + 1
+                out[k] = _resolve_media(v, k, dir_, ctr[k])
+        else:
+            raise BadInput(f"unknown input key {raw_k!r} (allowed: text/image/audio/video)")
+    if not out:
+        raise BadInput("empty input object")
+    return out
+
+
+def _prepare_inputs(user_input: Any, run_dir: Path) -> list[Any]:
+    if isinstance(user_input, (str, dict)):
+        items = [user_input]
+    elif isinstance(user_input, list):
+        if not user_input:
+            raise BadInput("input list is empty")
+        items = user_input
+    else:
+        raise BadInput("'input' must be a string, an object, or a list")
+    ctr: dict = {}
+    return [_prepare_item(it, run_dir, ctr) for it in items]
+
+
+# ---------------------------------------------------------------- app / lifecycle
+
+S: dict[str, Any] = {}
+
+
+def _load_model() -> None:
+    from sentence_transformers import SentenceTransformer
+
+    device = _resolve_device()
+    dtype = _resolve_dtype(device)
+    t0 = time.perf_counter()
+    log.info("loading %s on %s (%s) ...", MODEL_PATH, device, dtype)
+    model = SentenceTransformer(
+        MODEL_PATH,
+        device=device,
+        model_kwargs={"dtype": dtype, "attn_implementation": "sdpa"},
+    )
+    S.update(
+        model=model,
+        device=device,
+        dtype=str(dtype).removeprefix("torch."),
+        dim=model.get_embedding_dimension(),
+        prompts=dict(model.prompts or {}),
+        lock=threading.Lock(),
+    )
+    log.info("ready in %.1fs (dim=%d, %d prompt presets)", time.perf_counter() - t0, S["dim"], len(S["prompts"]))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    _load_model()
+    yield
+
+
+class EmbedRequest(BaseModel):
+    input: Union[str, dict, list] = Field(validation_alias=AliasChoices("input", "inputs"))
+    prompt_name: str | None = None
+    prompt: str | None = None
+    truncate_dim: int | None = None
+    normalize_embeddings: bool | None = None
+    batch_size: int | None = None
+
+
+app = FastAPI(title="embeddinggemma2-serve", version="1.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["*"]
+)
+
+
+@app.get("/health")
+def health():
+    out: dict[str, Any] = {
+        "status": "ok" if S.get("model") is not None else "loading",
+        "model": MODEL_PATH,
+        "device": S.get("device"),
+        "dtype": S.get("dtype"),
+        "dimension": S.get("dim"),
+    }
+    if S.get("device") == "cuda":
+        out["gpu"] = torch.cuda.get_device_name(0)
+        out["mem_allocated_mib"] = round(torch.cuda.memory_allocated() / 2**20)
+        out["mem_reserved_mib"] = round(torch.cuda.memory_reserved() / 2**20)
+    return out
+
+
+@app.get("/metadata")
+def metadata():
+    if S.get("model") is None:
+        raise HTTPException(503, "model still loading")
+    return {
+        "model": MODEL_PATH,
+        "device": S["device"],
+        "dtype": S["dtype"],
+        "dimension": S["dim"],
+        "mrl_dimensions": MRL_DIMS,
+        "modalities": ["text", "image", "audio", "video", "interleaved text+image+video+audio"],
+        "prompt_names": sorted(S["prompts"]),
+        "prompts": S["prompts"],
+        "similarity": "cosine (embeddings unit-normalized)",
+    }
+
+
+@app.post("/embed")
+def embed(req: EmbedRequest):
+    if S.get("model") is None:
+        raise HTTPException(503, "model still loading")
+    model = S["model"]
+
+    if req.prompt is not None and req.prompt_name is not None:
+        raise HTTPException(400, "provide either 'prompt' or 'prompt_name', not both")
+    if req.prompt_name is not None and req.prompt_name not in S["prompts"]:
+        raise HTTPException(400, f"unknown prompt_name {req.prompt_name!r}; valid: {sorted(S['prompts'])}")
+    if req.truncate_dim is not None and not 1 <= req.truncate_dim <= S["dim"]:
+        raise HTTPException(400, f"truncate_dim must be in 1..{S['dim']}")
+    if req.batch_size is not None and req.batch_size < 1:
+        raise HTTPException(400, "batch_size must be >= 1")
+
+    with tempfile.TemporaryDirectory(prefix="embg2_") as td:
+        try:
+            prepared = _prepare_inputs(req.input, Path(td))
+        except BadInput as e:
+            raise HTTPException(400, str(e)) from e
+
+        kwargs: dict[str, Any] = {
+            "show_progress_bar": False,
+            "normalize_embeddings": True if req.normalize_embeddings is None else req.normalize_embeddings,
+        }
+        if req.prompt_name is not None:
+            kwargs["prompt_name"] = req.prompt_name
+        if req.prompt is not None:
+            kwargs["prompt"] = req.prompt
+        if req.truncate_dim is not None:
+            kwargs["truncate_dim"] = req.truncate_dim
+        if req.batch_size is not None:
+            kwargs["batch_size"] = req.batch_size
+
+        t0 = time.perf_counter()
+        try:
+            with S["lock"]:
+                emb = model.encode(prepared, **kwargs)
+        except BadInput as e:
+            raise HTTPException(400, str(e)) from e
+        except Exception as e:  # noqa: BLE001
+            log.exception("encode failed")
+            raise HTTPException(500, f"inference failed: {type(e).__name__}: {e}") from e
+
+    emb = np.asarray(emb)
+    return {
+        "embeddings": emb.tolist(),
+        "dimension": int(emb.shape[-1]),
+        "count": int(emb.shape[0]),
+        "normalized": bool(kwargs["normalize_embeddings"]),
+        "model": Path(MODEL_PATH).name,
+        "took_ms": round((time.perf_counter() - t0) * 1000, 1),
+    }
+
+
+# ================================================================ OpenAI-compatible API
+# POST /v1/embeddings  (and /embeddings) — works with `ai`/`@ai-sdk/openai`, `openai`,
+# langchain, anything speaking the OpenAI embeddings protocol.
+# Model id: "embeddinggemma-2" or "embeddinggemma-2:<PromptName>" to steer the
+# task prefix (e.g. :Document :SearchQuery :STS :Classification ...). GET /v1/models.
+
+
+class OpenAIEmbedRequest(BaseModel):
+    model: str = "embeddinggemma-2"
+    input: Union[str, list]
+    dimensions: int | None = None
+    encoding_format: str = "float"  # float | base64
+    user: str | None = None  # ignored
+
+
+def _openai_model_spec(model_id: str) -> tuple[str, str | None]:
+    base, sep, suffix = model_id.partition(":")
+    if sep and suffix not in S["prompts"]:
+        raise HTTPException(400, f"unknown task suffix :{suffix!r}; valid: {sorted(S['prompts'])}")
+    return (base or "embeddinggemma-2"), (suffix or None)
+
+
+def _openai_inputs(raw) -> list[str]:
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list) and raw and all(isinstance(x, str) for x in raw):
+        return raw
+    raise HTTPException(400, "'input' must be a string or an array of strings")
+
+
+def _count_tokens(texts: list[str]) -> int:
+    tok = S["model"].tokenizer
+    enc = tok(list(texts), add_special_tokens=True)["input_ids"]
+    return sum(len(x) for x in enc)
+
+
+@app.get("/v1/models")
+def openai_models():
+    data = [
+        {
+            "id": "embeddinggemma-2",
+            "object": "model",
+            "owned_by": "embeddinggemma2-serve",
+            "max_input_tokens": 8192,
+            "task_suffixes": sorted(S["prompts"]),
+        }
+    ]
+    data += [{"id": f"embeddinggemma-2:{n}", "object": "model", "owned_by": "embeddinggemma2-serve"} for n in sorted(S["prompts"])]
+    return {"object": "list", "data": data}
+
+
+@app.post("/v1/embeddings")
+@app.post("/embeddings")
+def openai_embeddings(req: OpenAIEmbedRequest):
+    if S.get("model") is None:
+        raise HTTPException(503, "model still loading")
+    if req.encoding_format not in ("float", "base64"):
+        raise HTTPException(400, "encoding_format must be 'float' or 'base64'")
+    if req.dimensions is not None and not 1 <= req.dimensions <= S["dim"]:
+        raise HTTPException(400, f"dimensions must be in 1..{S['dim']}")
+
+    model_id, prompt_name = _openai_model_spec(req.model)
+    texts = _openai_inputs(req.input)
+    if not texts:
+        raise HTTPException(400, "'input' is empty")
+
+    kwargs: dict[str, Any] = {"show_progress_bar": False, "normalize_embeddings": True}
+    if prompt_name:
+        kwargs["prompt_name"] = prompt_name
+    if req.dimensions:
+        kwargs["truncate_dim"] = req.dimensions
+
+    with S["lock"]:
+        emb = np.asarray(S["model"].encode(texts, **kwargs))
+
+    if req.encoding_format == "base64":
+        out = [base64.b64encode(np.asarray(v, dtype="<f4").tobytes()).decode() for v in emb]
+    else:
+        out = emb.tolist()
+
+    n_tokens = _count_tokens(texts)
+    return {
+        "object": "list",
+        "data": [{"object": "embedding", "index": i, "embedding": e} for i, e in enumerate(out)],
+        "model": req.model,
+        "usage": {"prompt_tokens": n_tokens, "total_tokens": n_tokens},
+    }

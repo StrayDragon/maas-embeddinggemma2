@@ -1,0 +1,22 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# node / bun
+node_modules/
+
+# runtime
+server.log
+*.log
+
+# generated + local media assets (make_assets.py regenerates the synthetic set;
+# drop real media here locally, force-add if you want them versioned)
+sdk-test/assets/*
+!sdk-test/assets/.gitkeep
+
+# editors
+.idea/
+.vscode/
+*.swp
+.DS_Store

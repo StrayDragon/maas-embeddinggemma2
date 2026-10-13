@@ -1,0 +1,113 @@
+/**
+ * Verify embeddinggemma2-serve against the Vercel AI SDK (`ai` + `@ai-sdk/openai`).
+ *   bun i && bun run test
+ */
+import { createOpenAI } from "@ai-sdk/openai";
+import { embed, embedMany } from "ai";
+
+const BASE = process.env.BASE_URL ?? "http://127.0.0.1:8000/v1";
+
+const openai = createOpenAI({ baseURL: BASE, apiKey: "local" });
+// ai<=4 provider name vs newer: prefer textEmbeddingModel, fall back to embedding
+const provider = openai as unknown as Record<string, (id: string) => unknown>;
+const model = (id: string) =>
+  typeof provider.textEmbeddingModel === "function"
+    ? (provider.textEmbeddingModel as (id: string) => unknown)(id)
+    : (provider.embedding as (id: string) => unknown)(id);
+
+let failures = 0;
+function check(name: string, ok: boolean, info: string) {
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}  ${info}`);
+  if (!ok) failures++;
+}
+
+function cosine(a: number[], b: number[]): number {
+  let d = 0,
+    na = 0,
+    nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    d += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return d / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+// 1) single embed, native 768d
+{
+  const { embedding, value, usage } = await embed({
+    model: model("embeddinggemma-2") as never,
+    value: "The northern lights are caused by charged particles from the sun.",
+  });
+  const finite = embedding.every((x) => Number.isFinite(x));
+  check(
+    "embed/single",
+    embedding.length === 768 && finite && usage?.tokens > 0,
+    `dim=${embedding.length} tokens=${usage?.tokens} value="${value.slice(0, 24)}..."`,
+  );
+}
+
+// 2) embedMany batch
+{
+  const { embeddings } = await embedMany({
+    model: model("embeddinggemma-2") as never,
+    values: [
+      "A red mug on the table",
+      "Coffee in a red cup",
+      "The stock market fell sharply",
+    ],
+  });
+  const [a, b, c] = embeddings;
+  const ab = cosine(a, b);
+  const ac = cosine(a, c);
+  check(
+    "embedMany/batch",
+    embeddings.length === 3 && a.length === 768 && ab > ac,
+    `n=3 dim=768 cos(mug,mug)=${ab.toFixed(3)} > cos(mug,stocks)=${ac.toFixed(3)}`,
+  );
+}
+
+// 3) MRL truncation via providerOptions.openai.dimensions
+{
+  const { embedding } = await embed({
+    model: model("embeddinggemma-2") as never,
+    value: "dimension reduction test",
+    providerOptions: { openai: { dimensions: 256 } },
+  });
+  check("providerOptions/dimensions=256", embedding.length === 256, `dim=${embedding.length}`);
+}
+
+// 4) task-steered model id suffix (`:STS`) changes the embedding vs bare id
+{
+  const plain = await embed({ model: model("embeddinggemma-2") as never, value: "sunny day" });
+  const sts = await embed({ model: model("embeddinggemma-2:STS") as never, value: "sunny day" });
+  const cos = cosine(plain.embedding, sts.embedding);
+  check("task-suffix/:STS", cos < 0.999, `cos(plain,STS)=${cos.toFixed(4)} < 1`);
+}
+
+// 5) task suffix via embedMany too + symmetric-task sanity
+{
+  const { embeddings } = await embedMany({
+    model: model("embeddinggemma-2:Clustering") as never,
+    values: ["apple", "banana", "CPU fan noise"],
+  });
+  const fruit = cosine(embeddings[0], embeddings[1]);
+  const mixed = cosine(embeddings[0], embeddings[2]);
+  check("embedMany/:Clustering", fruit > mixed, `cos(apple,banana)=${fruit.toFixed(3)} > cos(apple,cpu)=${mixed.toFixed(3)}`);
+}
+
+// 6) invalid task suffix -> readable error from the SDK
+{
+  try {
+    await embed({ model: model("embeddinggemma-2:Nope") as never, value: "x" });
+    check("error/unknown-suffix", false, "no error thrown");
+  } catch (e) {
+    const anyErr = e as Record<string, unknown>;
+    const code = Number(anyErr.statusCode ?? 0);
+    const msg = String(anyErr.message ?? e);
+    check("error/unknown-suffix", code === 400 || /400|task suffix/.test(msg), `status=${code} ${msg.slice(0, 60)}`);
+  }
+}
+
+console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
+process.exit(failures === 0 ? 0 : 1);
