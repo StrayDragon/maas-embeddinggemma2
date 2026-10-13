@@ -168,5 +168,61 @@ const emb = async (input: unknown, extra: object = {}): Promise<number[]> => {
   check("/embed multimodal interleave", v.length === 768 && v.every(Number.isFinite));
 }
 
+// ============================================================ H. DashScope-compatible API
+{
+  const DS = `${BASE}/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding`;
+  const post = async (body: object, path = DS) => {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+  };
+  const png = Buffer.from(await Bun.file(new URL("./assets/blue_bg.png", import.meta.url).pathname).arrayBuffer()).toString("base64");
+  const dataUri = `data:image/png;base64,${png}`;
+
+  const r1 = await post({
+    model: "qwen3-vl-embedding",
+    input: { contents: [{ text: "一只猫" }, { image: dataUri }, { image: new URL("./assets/red_bg.png", import.meta.url).pathname }] },
+  });
+  const e1 = (r1.json as any).output?.embeddings;
+  check(
+    "dashscope independent",
+    r1.status === 200 && e1?.length === 3 && e1[0].type === "text" && e1[1].type === "image" && e1.every((x: any) => x.embedding.length === 768),
+    `n=3 types=${e1?.map((x: any) => x.type).join(",")}`,
+  );
+
+  const r2 = await post({
+    model: "x",
+    input: { contents: [{ text: " fusion ", image: dataUri }] },
+    parameters: { dimension: 256 },
+  });
+  const e2 = (r2.json as any).output?.embeddings;
+  check("dashscope fused element", r2.status === 200 && e2?.length === 1 && e2[0].type === "fused" && e2[0].embedding.length === 256);
+
+  const r3 = await post({
+    model: "x",
+    input: { contents: [{ text: "a" }, { image: dataUri }, { video: new URL("./assets/blue_clip.mp4", import.meta.url).pathname }] },
+    parameters: { enable_fusion: true },
+  });
+  const e3 = (r3.json as any).output?.embeddings;
+  const u3 = (r3.json as any).usage;
+  check("dashscope enable_fusion", r3.status === 200 && e3?.length === 1 && e3[0].type === "fusion" && u3?.total_tokens > 0, `dim=${e3?.[0]?.embedding?.length}`);
+
+  const r4 = await post({ input: { contents: [{ multiImages: undefined, multi_images: [new URL("./assets/blue_bg.png", import.meta.url).pathname, new URL("./assets/red_bg.png", import.meta.url).pathname] }] } });
+  const e4 = (r4.json as any).output?.embeddings;
+  check("dashscope multi_images", r4.status === 200 && e4?.length === 2 && e4.every((x: any) => x.type === "image"));
+
+  const r5 = await post({ input: { contents: [] } });
+  check(
+    "dashscope empty contents -> 400",
+    r5.status === 400 && (r5.json as any).code === "InvalidParameter" && typeof (r5.json as any).request_id === "string",
+    (r5.json as any).message,
+  );
+
+  const alias = await post({ input: { contents: ["hi"] } }, `${BASE}/embed/dashscope`);
+  check("dashscope alias /embed/dashscope", alias.status === 200);
+
+  const st = await jfetch("/embed/st", { input: "route rename check" });
+  check("/embed/st (sentence-transformers style)", st.status === 200);
+}
+
 console.log(`\n${total.n - failures}/${total.n} PASS` + (failures ? `, ${failures} FAIL` : ""));
 process.exit(failures ? 1 : 0);

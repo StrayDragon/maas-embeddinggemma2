@@ -20,7 +20,7 @@ DTYPE=bfloat16 ./run.sh     # 试 bf16（本机 ROCM 栈 batch 推理 bf16 有�
 
 ## API
 
-### POST /embed
+### POST /embed/st（sentence-transformers 风格, `/embed` 为别名）
 
 ```jsonc
 {
@@ -48,6 +48,22 @@ DTYPE=bfloat16 ./run.sh     # 试 bf16（本机 ROCM 栈 batch 推理 bf16 有�
 交错模态: 在 `text` 中放 ` IMAGE_TOKEN ` / ` VIDEO_TOKEN ` 占位符, 按顺序消耗 `image`/`video` 列表 (共享 8192 token 上下文)。
 
 响应: `{"embeddings": [[...]], "dimension", "count", "normalized", "took_ms"}` — 单位向量, 直接内积即余弦相似度。
+
+### DashScope 兼容层（阿里云百炼多模态向量形状）
+
+`POST /api/v1/services/embeddings/multimodal-embedding/multimodal-embedding`（别名 `/embed/dashscope`）
+
+- `input.contents[]`: `{text|image|video|multi_images}` 或纯字符串; image 支持 URL/base64 dataURI/服务器路径
+- 单 content 多模态 → 融合向量(`type=fused`);`parameters.enable_fusion=true` → 全部 contents 融合为 1 条(`type=fusion`);默认独立向量
+- `parameters.dimension` → MRL 截断;`parameters.instruct` → 按 EmbeddingGemma 指令格式 `task:...|query:` 前缀
+- 响应/错误/`request_id`/`usage` 均按 DashScope 形状;视觉 token 为估计值(280/图, 1120/视频)
+- 所有向量与 `/embed/st` 同一语义空间,可直接混用于跨模态检索
+
+```bash
+curl -s localhost:8000/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"embeddinggemma-2","input":{"contents":[{"text":"一只猫"},{"image":"data:image/png;base64,..."}]},"parameters":{"dimension":256}}'
+```
 
 ### GET /health · GET /metadata
 
