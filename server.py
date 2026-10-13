@@ -8,6 +8,9 @@ import base64
 import binascii
 import io
 import logging
+import uuid
+
+from fastapi.responses import JSONResponse
 import os
 import re
 import tempfile
@@ -322,6 +325,7 @@ def metadata():
     }
 
 
+@app.post("/embed/st")
 @app.post("/embed")
 def embed(req: EmbedRequest):
     if S.get("model") is None:
@@ -464,4 +468,214 @@ def openai_embeddings(req: OpenAIEmbedRequest):
         "data": [{"object": "embedding", "index": i, "embedding": e} for i, e in enumerate(out)],
         "model": req.model,
         "usage": {"prompt_tokens": n_tokens, "total_tokens": n_tokens},
+    }
+
+
+# ================================================================ DashScope-compatible multimodal embedding
+# POST /api/v1/services/embeddings/multimodal-embedding/multimodal-embedding (alias /embed/dashscope)
+# 阿里云百炼多模态向量 API 形状, 便于 DashScope 用户零改造切换。
+# 独立向量: 每 content 一个; 单 content 多模态 => type=fused; enable_fusion=true => 全部融合, type=fusion。
+# 支持字段: text/image/video/multi_images, parameters.dimension/.instruct/.enable_fusion。
+# 偏差: 本服务单模型同空间; usage 视觉 token 为估计值(280/img, 1120/video)。
+
+class DashscopeRequest(BaseModel):
+    model: str = "embeddinggemma-2"
+    input: dict = {}
+    parameters: dict = {}
+
+
+def _ds_error(status: int, code: str, msg: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content={"code": code, "message": msg, "request_id": str(uuid.uuid4())},
+    )
+
+
+def _ds_text_prep(text: str, instruct, steer: bool) -> str:
+    if instruct and steer:
+        return f"task: {instruct} | query: {text}"  # EmbeddingGemma instruction shape
+    return text
+
+
+def _ds_parse(el, i: int):
+    if isinstance(el, str):
+        return {"text": el}
+    return el
+
+
+def _ds_collect_media(el: dict, kind: str, dir_: Path, ctr: dict) -> list:
+    """image + multi_images -> list of engine-ready values; video -> single-item list"""
+    out: list = []
+    if kind == "image":
+        if "image" in el:
+            ctr["image"] = ctr.get("image", 0) + 1
+            out.append(_resolve_media(el["image"], "image", dir_, ctr["image"]))
+        for x in el.get("multi_images") or []:
+            ctr["image"] = ctr.get("image", 0) + 1
+            out.append(_resolve_media(x, "image", dir_, ctr["image"]))
+    elif "video" in el:
+        ctr["video"] = ctr.get("video", 0) + 1
+        out.append(_resolve_media(el["video"], "video", dir_, ctr["video"]))
+    return out
+
+
+@app.post("/embed/dashscope")
+@app.post("/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding")
+def dashscope_multimodal_embedding(req: DashscopeRequest):
+    if S.get("model") is None:
+        return _ds_error(503, "InternalError", "model still loading")
+    contents = (req.input or {}).get("contents")
+    if not isinstance(contents, list) or not contents:
+        return _ds_error(400, "InvalidParameter", "input can not be empty: input.contents")
+
+    params = req.parameters or {}
+    dimension = params.get("dimension")
+    if dimension is not None and (not isinstance(dimension, int) or not 1 <= dimension <= S["dim"]):
+        return _ds_error(400, "InvalidParameter", f"dimension must be integer 1..{S['dim']}")
+    enable_fusion = bool(params.get("enable_fusion", False))
+    instruct = params.get("instruct")
+
+    known = {"text", "image", "video", "multi_images"}
+    inputs: list = []
+    types: list[str] = []
+    text_pieces: list[str] = []
+    n_images = 0
+    n_videos = 0
+    fused_pool = {"text": [], "image": [], "video": []}
+
+    with tempfile.TemporaryDirectory(prefix="ds_") as td:
+        dir_ = Path(td)
+        ctr: dict = {}
+
+        def add(inp: dict, typ: str) -> None:
+            inputs.append(inp)
+            types.append(typ)
+
+        for i, raw_el in enumerate(contents):
+            el = _ds_parse(raw_el, i)
+            if not isinstance(el, dict) or not el:
+                return _ds_error(400, "InvalidParameter", f"contents[{i}] must be a non-empty object or string")
+            bad = set(el) - known
+            if bad:
+                return _ds_error(400, "InvalidParameter", f"contents[{i}] unsupported keys {sorted(bad)}; allowed {sorted(known)}")
+            if not any(k in el for k in known):
+                return _ds_error(400, "InvalidParameter", f"contents[{i}] has no usable modality")
+
+            texts = []
+            if "text" in el:
+                t = el["text"]
+                if not isinstance(t, str) or not t:
+                    return _ds_error(400, "InvalidParameter", f"contents[{i}].text must be a non-empty string")
+                texts.append(t)
+
+            imgs: list = []
+            if "image" in el or "multi_images" in el:
+                if "image" in el:
+                    ctr["image"] = ctr.get("image", 0) + 1
+                    imgs.append(_resolve_media(el["image"], "image", dir_, ctr["image"]))
+                for x in el.get("multi_images") or []:
+                    if not isinstance(x, (str, dict)):
+                        return _ds_error(400, "InvalidParameter", f"contents[{i}].multi_images[{len(imgs)}] invalid")
+                    ctr["image"] = ctr.get("image", 0) + 1
+                    imgs.append(_resolve_media(x, "image", dir_, ctr["image"]))
+            vids: list = []
+            if "video" in el:
+                if not isinstance(el["video"], str):
+                    return _ds_error(400, "InvalidParameter", f"contents[{i}].video must be a string (path/url/b64)")
+                ctr["video"] = ctr.get("video", 0) + 1
+                vids.append(_resolve_media(el["video"], "video", dir_, ctr["video"]))
+
+            n_images += len(imgs)
+            n_videos += len(vids)
+            has_media = bool(imgs or vids)
+
+            if enable_fusion:  # accumulate everything, single vector at the end
+                for t in texts:
+                    fused_pool["text"].append(_ds_text_prep(t, instruct, True))
+                fused_pool["image"].extend(imgs)
+                fused_pool["video"].extend(vids)
+                continue
+
+            multimodal_element = bool(texts and has_media)
+            if texts:
+                t = _ds_text_prep(texts[0], instruct, multimodal_element)
+                inp: dict = {"text": t}
+                text_pieces.append(t)
+            else:
+                inp = {}
+
+            if not has_media:
+                add(inp, "text")
+            elif not imgs and vids:  # video only
+                if len(vids) > 1:
+                    for v in vids:
+                        add({"video": v}, "video")
+                else:
+                    inp["video"] = vids[0]
+                    add(inp, "video" if not texts else "fused")
+            elif imgs and not vids:  # image(s)
+                if len(imgs) == 1:
+                    inp["image"] = imgs[0]
+                    add(inp, "fused" if multimodal_element else "image")
+                else:  # multi-image element: independent per image (+text fused w/ first? no: text applies to element -> fuse text w/ each? keep simple: text fused with first, rest plain)
+                    if texts and len(imgs) > 1 and "image" not in inp:
+                        pass
+                    for k, one in enumerate(imgs):
+                        if k == 0 and texts:
+                            add({"text": inp["text"], "image": one}, "fused")
+                        else:
+                            add({"image": one}, "image")
+            else:  # images + videos mixed in one element: fuse text+first of each
+                if texts:
+                    inp["image"] = imgs[0]
+                    inp["video"] = vids[0]
+                    add(inp, "fused")
+                    for one in imgs[1:]:
+                        add({"image": one}, "image")
+                else:
+                    add({"image": imgs[0], "video": vids[0]}, "fused")
+                    for one in imgs[1:]:
+                        add({"image": one}, "image")
+
+        if enable_fusion:
+            merged: dict = {}
+            if fused_pool["text"]:
+                merged["text"] = fused_pool["text"] if len(fused_pool["text"]) > 1 else fused_pool["text"][0]
+            if fused_pool["image"]:
+                merged["image"] = fused_pool["image"]
+            if fused_pool["video"]:
+                merged["video"] = fused_pool["video"][0] if len(fused_pool["video"]) == 1 else fused_pool["video"]
+            if not merged:
+                return _ds_error(400, "InvalidParameter", "no usable modality for fusion")
+            add(merged, "fusion")
+
+        if not inputs:
+            return _ds_error(400, "InvalidParameter", "no usable contents after parsing")
+        if any(t == "fused" for t in types):
+            pass
+
+        kwargs: dict = {"show_progress_bar": False, "normalize_embeddings": True}
+        if dimension:
+            kwargs["truncate_dim"] = dimension
+        try:
+            with S["lock"]:
+                emb = np.asarray(S["model"].encode(inputs, **kwargs))
+        except Exception as e:  # noqa: BLE001
+            log.exception("dashscope encode failed")
+            return _ds_error(500, "InternalError.Algo", f"embedding failed: {type(e).__name__}: {e}")
+
+    n = emb.shape[0]
+    out = [{"index": i, "embedding": emb[i].tolist(), "type": types[i]} for i in range(n)]
+    tok = S["model"].tokenizer
+    text_tokens = sum(len(x) for x in tok(text_pieces, add_special_tokens=True)["input_ids"]) if text_pieces else 0
+    image_tokens = 280 * n_images + 1120 * n_videos  # estimate
+    return {
+        "output": {"embeddings": out},
+        "usage": {
+            "input_tokens": text_tokens,
+            "input_tokens_details": {"image_tokens": image_tokens, "text_tokens": text_tokens},
+            "output_tokens": 1,
+            "total_tokens": text_tokens + image_tokens,
+        },
+        "request_id": str(uuid.uuid4()),
     }
