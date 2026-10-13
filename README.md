@@ -2,7 +2,7 @@
 
 EmbeddingGemma 2 (740M) 全模态 embedding 服务 —— 文本 / 图片 / 音频 / 视频 / 任意交错输入 → 统一 768 维向量空间。
 
-- 权重: `models/embeddinggemma-2`（本地离线）
+- 权重: 本地路径或 HF repo id，经 `.env` 配置（见下文配置节）
 - 环境: `.venv`（uv 管理的既有虚拟环境, Python 3.12）
 - 计算: AMD Radeon 8060S (gfx1151, ROCm 7.2), float32, 统一内存
 - 栈: torch 2.14.1+rocm7.2 · transformers 5.19 · sentence-transformers 6.1 · FastAPI
@@ -17,6 +17,23 @@ DTYPE=bfloat16 ./run.sh     # 试 bf16（本机 ROCM 栈 batch 推理 bf16 有�
 ```
 
 停止: `pkill -f '[u]vicorn server:app'`
+
+## 配置（.env / pydantic-settings）
+
+所有部署相关项集中在 [`config.py`](config.py)（pydantic-settings），`.env.example` 由其元数据自动生成：
+
+```bash
+cp .env.example .env    # 填入本机值（MODEL_PATH 指向权重; 已 gitignore）
+just env-example        # 改过 config.py 后重新生成 example
+```
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `MODEL_PATH` | `models/embeddinggemma-2` | 权重路径或 HF repo id |
+| `HOST`/`PORT` | `0.0.0.0`/`8000` | 服务绑定 |
+| `DEVICE` | `auto` | `cuda`/`cpu` 强制覆盖 |
+| `DTYPE` | `auto` | `bfloat16`/`float32` 强制覆盖 |
+| `LOG_LEVEL` | `INFO` | 日志级别 |
 
 ## API
 
