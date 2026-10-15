@@ -6,7 +6,7 @@ set shell := ["bash", "-uc"]
 py := ".venv/bin/python"
 uvbin := "uv"
 # 服务地址: EMBG2_BASE_URL > .env(profile 感知) > 探测;见 endpoint.py
-resolve := "{{py}} -c 'from endpoint import resolve_base_url; print(resolve_base_url())'"
+resolve := f'{{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())"'
 
 # 默认：列出所有命令
 default:
