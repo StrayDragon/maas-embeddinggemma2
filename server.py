@@ -1,6 +1,6 @@
 """EmbeddingGemma 2 embedding server — text / image / audio / video / interleaved multimodal.
 
-Run:  ./run.sh          (env: HOST PORT DEVICE DTYPE MODEL_PATH)
+Run:  ./run.sh          (config: PROFILE + profile-prefixed vars, see config.py)
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AliasChoices, BaseModel, Field
 
-from config import settings
+from config import ACTIVE_PROFILE, settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("embeddinggemma2")
@@ -360,6 +360,7 @@ async def unhandled_error(request: Request, exc: Exception):
 def health():
     out: dict[str, Any] = {
         "status": "ok" if S.get("model") is not None else "loading",
+        "profile": ACTIVE_PROFILE,
         "model": MODEL_PATH,
         "device": S.get("device"),
         "dtype": S.get("dtype"),
@@ -379,6 +380,7 @@ def metadata():
     if S.get("model") is None:
         raise HTTPException(503, "model still loading")
     return {
+        "profile": ACTIVE_PROFILE,
         "model": MODEL_PATH,
         "device": S["device"],
         "dtype": S["dtype"],

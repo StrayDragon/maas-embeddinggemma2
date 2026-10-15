@@ -1,5 +1,6 @@
 # embeddinggemma2-serve — 常用操作
-# 服务前台运行（Ctrl-C 停止）；默认 cuda/fp32，环境变量可覆盖：DEVICE DTYPE MODEL_PATH PORT HOST
+# 机器差异收敛到 profile：.env 的 PROFILE 选择 cpu|strix-halo（auto 探测），
+# 覆盖项用对应前缀 CPU_*/STRIX_HALO_*（全表见 .env.example，由 config.py 生成）
 
 set shell := ["bash", "-uc"]
 py := ".venv/bin/python"
@@ -75,18 +76,13 @@ assets:
     cd sdk-test && ../{{py}} make_assets.py
 
 # ---------------------------------------------------------------- 环境
-# 从零重建 venv（ROCm/gfx1151 组合，详见 README）；纯 CPU 机器按 README 换 cpu 索引
-setup:
-    {{uvbin}} venv --python 3.12 .venv
-    {{uvbin}} pip install --python {{py}} \
-      --index-url https://download.pytorch.org/whl/rocm7.2 \
-      --extra-index-url https://download.pytorch.org/whl/cpu \
-      --index-strategy unsafe-best-match \
-      "torch==2.14.1+rocm7.2" "torchvision==0.29.1+rocm7.2" "torchcodec==0.17.0+cpu"
-    grep -vE '^(#|torch==|torchvision==|torchcodec==)' requirements.txt | grep -v '^$' > /tmp/req-rest.txt
-    {{uvbin}} pip install --python {{py}} -r /tmp/req-rest.txt
-    cp -n .env.example .env || true
-    @echo "ok — 编辑 .env 后 just serve；just check 验证"
+# 按 profile 从零装环境（venv + 对应 torch 栈 + 锁定依赖 + 写入 .env 的 PROFILE）
+setup profile:
+    ./scripts/setup_env.sh {{profile}}
+
+# 打印当前生效配置（profile / 模型 / 绑定地址 / device·dtype）
+config:
+    {{py}} -c 'from config import ACTIVE_PROFILE, settings; print("profile =", ACTIVE_PROFILE); print("model   =", settings.model_path); print("bind    = %s:%d" % (settings.host, settings.port)); print("device  = %s / %s" % (settings.device, settings.dtype))'
 
 # 按 requirements 全量对齐已有 venv
 sync:
