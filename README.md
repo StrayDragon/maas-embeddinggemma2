@@ -10,6 +10,20 @@ just serve              # 另: just dev 热重载;just config 查看生效配置
 just check              # 一键回归(首次素材: just assets)
 ```
 
+## API 一览
+
+| 入口 | 路径 | 适用场景 |
+| --- | --- | --- |
+| REST 全模态 | `POST /embed/st`(别名 `/embed`) | 多模态 / 跨模态 / 交错输入,完整参数(prompt 预设、MRL 截断、批量) |
+| OpenAI 兼容 | `POST /v1/embeddings` · `GET /v1/models` | TypeScript `ai` / `@ai-sdk/openai` / `openai` / langchain 零适配直连 |
+| DashScope 兼容 | `POST /api/v1/services/embeddings/multimodal-embedding/multimodal-embedding` | 阿里云百炼迁移,请求/响应形状 1:1 |
+| 运维 | `GET /health` · `GET /metadata` | 探活(含生效 profile)/ prompt 预设 / 支持维度与模态 |
+
+字段与示例:[docs/API.md](docs/API.md)。三个入口同一语义空间,向量可直接混用。
+**TypeScript 技术栈集成实测与选型决策树:[sdk-test/INTEGRATION.md](sdk-test/INTEGRATION.md)**(ai-sdk / openai / DashScope 三种形状的结论与坑,配套 `sdk-test/*.ts` 可跑断言)。
+
+客户端地址发现:测试与辅助脚本自动从 `.env`(profile 感知)解析服务地址,`EMBG2_BASE_URL=http://host:port` 可覆盖;均不可达时报错并给出启动提示(见 `endpoint.py` / `sdk-test/base.ts`)。
+
 ## 配置
 
 - 唯一真源 [`config.py`](config.py)(pydantic-settings);`.env.example` 由它生成、含**全部 profile 的全部变量**:`just env-example`。
