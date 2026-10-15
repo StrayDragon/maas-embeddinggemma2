@@ -51,12 +51,12 @@ test-client: (up-guard)
 test-mm: (up-guard)
     cd sdk-test && bun run test:mm
 
-# TS：真实素材结构验证（传文件路径，或默认扫 sdk-test/assets）
+# TS：真实素材结构+语义检索（默认扫 ../assets 真实素材 + ./assets 合成素材）
 test-real *paths: (up-guard)
     cd sdk-test && bun run real {{paths}}
 
-# 一键回归：api + sdk + client + mm
-check: test-api test-sdk test-client test-mm
+# 一键回归：api + sdk + client + mm + real
+check: test-api test-sdk test-client test-mm test-real
     @echo "== all green"
 
 # 跨模态检索 sanity（真实素材 assets/images，中文 query）
