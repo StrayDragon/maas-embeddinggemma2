@@ -5,8 +5,8 @@
 set shell := ["bash", "-uc"]
 py := ".venv/bin/python"
 uvbin := "uv"
-port := env_var_or_default("PORT", "50233")
-host := env_var_or_default("HOST", "0.0.0.0")
+# 服务地址: EMBG2_BASE_URL > .env(profile 感知) > 探测;见 endpoint.py
+resolve := "{{py}} -c 'from endpoint import resolve_base_url; print(resolve_base_url())'"
 
 # 默认：列出所有命令
 default:
@@ -21,19 +21,19 @@ serve:
 dev:
     RELOAD=1 ./run.sh
 
-# 健康检查 / 全量元信息
-health host="127.0.0.1" port=port:
-    curl -sf http://{{host}}:{{port}}/health && echo
-meta host="127.0.0.1" port=port:
-    curl -s http://{{host}}:{{port}}/metadata | {{py}} -m json.tool
+# 健康检查 / 全量元信息(地址自动发现,失败给提示)
+health:
+    url=$({{resolve}}) && curl -sf "$url/health" && echo
+meta:
+    url=$({{resolve}}) && curl -s "$url/metadata" | {{py}} -m json.tool
 
-# 单条文本冒烟：断言维度/归一化（可换 prompt 与维度）
-try text host="127.0.0.1" port=port:
-    {{py}} scripts/try_embed.py {{quote(text)}} --url "http://{{host}}:{{port}}/embed"
+# 单条文本冒烟:断言维度/归一化(可换 prompt 与维度)
+try text:
+    {{py}} scripts/try_embed.py {{quote(text)}}
 
 # ---------------------------------------------------------------- �验证
-up-guard port=port:
-    @curl -sf -m 2 "http://127.0.0.1:{{port}}/health" >/dev/null || (echo "service not running — 先 just serve"; exit 1)
+up-guard:
+    @url=$({{resolve}}) && curl -sf -m 2 "$url/health" >/dev/null || { echo "service unreachable — 先 just serve,或 EMBG2_BASE_URL=http://host:port 指定"; exit 1; }
 
 # Python HTTP 全模态测试
 test-api: (up-guard)

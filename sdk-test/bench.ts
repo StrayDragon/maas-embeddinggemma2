@@ -2,7 +2,9 @@
  * HTTP-level benchmark. Usage: bun run bench [--quick]
  * Measures end-to-end latency (network + tokenize + GPU) against the running server.
  */
-const BASE = "http://127.0.0.1:50233";
+import { BASE, preflight } from "./base";
+
+await preflight();
 const A = new URL("./assets/", import.meta.url).pathname;
 const QUICK = process.argv.includes("--quick");
 

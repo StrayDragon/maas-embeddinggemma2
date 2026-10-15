@@ -5,8 +5,9 @@
 import OpenAI from "openai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed as aiEmbed, embedMany as aiEmbedMany } from "ai";
+import { BASE, preflight } from "./base";
 
-const BASE = "http://127.0.0.1:50233";
+await preflight();
 const V1 = `${BASE}/v1`;
 
 let failures = 0;

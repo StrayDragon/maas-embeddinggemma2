@@ -5,7 +5,9 @@
  *   ../.venv/bin/python make_assets.py   # once
  *   bun run multimodal
  */
-const BASE = "http://127.0.0.1:50233";
+import { BASE, preflight } from "./base";
+
+await preflight();
 const A = new URL("./assets/", import.meta.url).pathname;
 
 let failures = 0;

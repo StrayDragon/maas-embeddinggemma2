@@ -13,7 +13,9 @@ import av
 import soundfile as sf
 from PIL import Image, ImageDraw
 
-BASE = "http://127.0.0.1:" + os.environ.get("PORT", "50233")
+from endpoint import resolve_base_url
+
+BASE = resolve_base_url()
 IMG_TOKEN = "<|image|>"
 VID_TOKEN = "<|video|>"
 

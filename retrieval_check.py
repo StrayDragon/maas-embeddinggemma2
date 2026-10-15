@@ -5,7 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
-BASE = "http://localhost:50233"
+from endpoint import resolve_base_url
+
+BASE = resolve_base_url()
 
 
 def emb(payload: dict, **extra) -> np.ndarray:
