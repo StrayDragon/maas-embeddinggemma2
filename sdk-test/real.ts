@@ -145,8 +145,10 @@ for (const path of files) {
     v2 = await embed(input);
   } catch (e) {
     const msg = String(e);
-    if (REMOTE && kind === "audio" && msg.includes("audio inputs")) {
-      console.log(`SKIP  ${name}  (remote: enable embedding_audio_enabled in oMLX model settings)`);
+    if (REMOTE && kind === "audio") {
+      // flag is on server-side; 0.7.1rc1 audio inference 500s on every
+      // encoding (documented in docs/OMMLX.md + recipes/ommlx_backend)
+      console.log(`SKIP  ${name}  (remote audio: 0.7.1rc1 server 500 -- see docs/OMMLX.md)`);
       continue;
     }
     check(name, false, msg.slice(0, 140));

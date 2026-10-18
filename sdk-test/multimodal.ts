@@ -119,7 +119,7 @@ const img = async (f: string) => ({ image: { b64: await b64(f) } });
     try {
       await embed({ audio: { b64: await b64("tone440.wav") } });
     } catch {
-      console.log("SKIP  audio/*  (remote: enable embedding_audio_enabled in oMLX model settings)");
+      console.log("SKIP  audio/*  (remote: 0.7.1rc1 audio 500 -- see docs/OMMLX.md)");
       // still run the raw-PCM <-> b64 equivalence purely client-side? needs the API; skip both
     }
   }

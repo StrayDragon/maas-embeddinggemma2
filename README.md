@@ -11,8 +11,10 @@ just setup strix-halo   # 或 just setup cpu:建 venv + 装对应 torch 栈 + �
 just setup ommlx        # 或:远端 oMLX 后端,轻量 venv(无 torch),配置 OMLX_BASE_URL/OMLX_API_KEY 即用
 just serve              # 另: just dev 热重载;just config 查看生效配置(ommlx 下打印远端地址)
 just check              # 一键回归(首次素材: just assets);ommlx 下自动切远端断言
-just test-ommlx         # 仅 ommlx:22 项远端活体断言
+just test-ommlx         # 仅 ommlx:27 项远端活体断言(含 recipes 契约/视频抽帧)
 ```
+
+后端抽象:所有客户端代码走 `recipes.get_backend()`(local / ommlx 两个 recipe,`PROFILE` 选路,能力差异在 recipe 内吸收)—— 见 `docs/OMMLX.md` 的「后端抽象」节。
 
 ## API 一览
 

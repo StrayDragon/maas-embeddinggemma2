@@ -27,9 +27,13 @@ health:
 meta:
     url=$({{resolve}}) && curl -s "$url/metadata" | {{py}} -m json.tool
 
-# 单条文本冒烟:断言维度/归一化(可换 prompt 与维度)
+# 单条文本冒烟:断言维度/归一化(经 recipes 后端;可换 task 与维度)
 try text:
     {{py}} scripts/try_embed.py {{quote(text)}}
+
+# 同上,但指定任务前缀与维度
+try-task text task dim="256":
+    {{py}} scripts/try_embed.py {{quote(text)}} --task {{task}} --dim {{dim}}
 
 # ---------------------------------------------------------------- �验证
 # ---------------------------------------------------------------- oMLX (remote engine)

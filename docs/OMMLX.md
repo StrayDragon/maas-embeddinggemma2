@@ -34,8 +34,8 @@ just recall               # Python 跨模态 sanity 3/3
 | 文+图融合 | ✅ | 单输入内 text+image → 一个 768 维向量 |
 | MRL 截断 | ✅ | `dimensions: 128/256/512/768`,服务端截断后**重新归一化**(实测 norm=1.0000) |
 | usage 计数 | ✅ | 图片计 280 tokens(与模型卡一致) |
-| 音频 | ⚠️ 需服务端开关 | 模型设置里开 `embedding_audio_enabled`(audio tower 常驻 0.88→1.46 GB);本 key 为子密钥,无 admin 权限时需在 Web UI 里开 |
-| 视频 | ❌ | `/v1/embeddings` 无 video 字段;客户端抽帧转图片即可(同一视觉塔) |
+| 音频 | ⚠️ 服务端 500 | 开关 `embedding_audio_enabled` 已在 Web UI 打开(tower 常驻 ~1.5 GB,错误从 "not supported" 变 500 可证);但 0.7.1rc1 的音频推理对**所有**编码/时长/形状都返回 500(wav 8-48k 0.25-10s 含上游测试同款 fixture、mp3/ogg/opus、items 与 content-parts 两种形状、预热/重载后均复现)→ 需 coral 服务端日志定位,客户端无进一步空间;`test_ommlx` 条件跳过 |
+| 视频 | ⚠️ 客户端抽帧 | `/v1/embeddings` 无 video 字段;`recipes.ommlx_backend.embed_video()` 已封装(fps 抽帧→逐帧 embed→均值归一),实测 zh 查询对双视频判别 2/2 top1 正确,与最佳单帧差距 ~0.01 |
 | 任务前缀 | ✅ 手动 | 服务端不注入 prompt 模板,`task: ... \| query: ...` 直接写进文本(实测 steered 0.778 / plain 0.827 vs doc,均远超随机) |
 | `max_model_len` | 262144(声明) | 实际 embedding 上下文 8192,超长输入服务端静默截断,不报错 |
 | 多模型 | ✅ | 同服 bge-m3(dim 1024)与 eg2(dim 768)各自成空间,勿跨模型比相似度 |
@@ -49,6 +49,23 @@ just recall               # Python 跨模态 sanity 3/3
 | 多图/视频/交错 | 完整 | 单图;视频需客户端抽帧 |
 | DashScope 兼容层 | 有(`/api/v1/...`) | 无(用 items 模拟,语义一致) |
 | `/metadata` `/health` 详情 | 有 | 仅 `/health`(无需鉴权) |
+
+## 后端抽象(`recipes/`)
+
+所有客户端代码经统一注册表选路,`PROFILE` 决定 recipe,调用侧零分支:
+
+```python
+from recipes import get_backend
+b = get_backend()            # PROFILE=ommlx -> oMLX;cpu/strix-halo -> 本地 server
+b.embed_text("q", task="search", dim=256)   # 任务前缀差异被 recipe 吸收
+b.embed_file("clip.mp4")                    # ommlx 下自动走抽帧;local 走原生 video
+b.embed_item({"text": "t", "image": "p.png", "audio": "a.wav"})
+b.capabilities                               # 按能力降级而非 try/except
+```
+
+- `recipes/local_backend.py` -- 本仓库 server(全能力,`prompt_name` 预设)
+- `recipes/ommlx_backend.py` -- oMLX(能力矩阵见上;video 抽帧/任务前缀注文本都在这层吸收)
+- `omlx_client.py` 保留为兼容 facade,实现已全部移入 recipes
 
 ## 客户端用法(`omlx_client.py`,零 torch 依赖)
 
@@ -76,7 +93,7 @@ embed("q", dimensions=256)                            # MRL,已归一化
 ## 已知坑
 
 1. **图片必须 data URI** —— 客户端 `omlx_client` 已自动转换;裸 URL 会被 oMLX 拒绝(与本地 server 不同)。
-2. **音频默认关** —— 见上;`test-ommlx` 对此优雅跳过而非失败。
+2. **音频 500** —— 开关已开(见上);0.7.1rc1 服务端推理持续 500,`test-ommlx` 条件跳过。修复需 coral 侧 `omlx` 服务日志(stderr)定位 mlx_vlm 音频链路异常。
 3. **无视频入参** —— 需要视频语义时客户端抽帧(ffmpeg/av)转图片批量。
 4. **8192 才是真实上下文** —— `/v1/models` 的 262144 是 RoPE 上限;超长文本会被截断而非报错,重要内容放前面。
 5. **两个模型两套空间** —— bge-m3 与 eg2 的向量不可混用;`dim` 字段可作断言。
