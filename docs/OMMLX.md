@@ -90,6 +90,24 @@ embed("q", dimensions=256)                            # MRL,已归一化
 - eg2 的图片预处理有一个上游 PIL channel-layout 补丁(`omlx/patches/embedding_gemma2_image_layout.py`),1px/3px 高的图会静默降质,0.7.1rc1 已修。
 - 改完模型设置会触发 engine 重载(`embedding_audio_enabled` 在 runtime signature 里),首次调用会有 ~15 s 冷启动。
 
+## 跨后端一致性 与 负载均衡可行性(实测)
+
+「相同输入+参数,两个后端返回同一向量吗?」—— **否,但受控**:
+
+| 层面 | 实测结论 |
+| --- | --- |
+| 单后端确定性 | ✅ cos=1.000000(位稳定,同输入重复调用不变) |
+| 跨后端同一输入 | cos ≈ 0.80-0.89(bf16/Metal vs fp32/ROCm 的数值路径差异,含 centroid 偏移 cos 0.825) |
+| 排序结构 | ✅ 保持:跨后端 score Pearson 0.992,top-20 相似对重叠 14/20 |
+| 混用向量库 | ⚠️ 召回损失实证:8 组 zh 查询/4 文档,same-backend recall@1 14/16,**跨后端混检 8/16** |
+
+**负载均衡结论**:
+- ✅ 可行且推荐:**按 collection 分流** —— 索引和查询始终落在同一后端(一致性哈希/路由表),单后端位稳定保证集合内自洽。
+- ⚠️ 谨慎:**同一 collection 混双后端写入** —— 跨后端混检 recall@1 掉 37.5%(14/16→8/16);必须双写+分别检索,或全量重嵌。
+- ❌ 无意义:纯吞吐型 round-robin —— 两引擎内部各自串行(coral ~94/s 上限,tufa ~37/s),混发 16 并发仅 68/s,反而低于单压 coral。要扩吞吐应加 coral 侧副本,而非异构混发。
+
+> 数据:16 样本云质心分析 + 8 组检索面板;复测脚本思路见 `scripts/ab_bench.py`(请求构造同款)。
+
 ## 已知坑
 
 1. **图片必须 data URI** —— 客户端 `omlx_client` 已自动转换;裸 URL 会被 oMLX 拒绝(与本地 server 不同)。
