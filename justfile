@@ -166,3 +166,7 @@ dbg-env:
     {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
     source /tmp/embg2_env
     echo "env now: [$EMBG2_MODEL]"
+
+# 双后端 A/B 基准(strix-halo vs omlx,同请求 x3 取中位)
+bench-ab:
+    bash scripts/ab_bench.py

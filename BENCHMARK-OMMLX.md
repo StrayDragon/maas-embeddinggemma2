@@ -1,9 +1,27 @@
 # 性能报告 — oMLX 后端(`ommlx` profile)
 
-环境: 远程 Mac(Apple Silicon, oMLX 0.7.1rc1, MLX/Metal, bf16)serve `embeddinggemma-2-bf16` · 本机仅 HTTP 客户端,局域网 RTT ~0.3 ms(tailscale,传输层 ~5 ms p50)
+环境: coral = **Apple M4 / 16 GB**(macOS, oMLX 0.7.1rc1, MLX/Metal, **bf16**)serve `embeddinggemma-2-bf16` · 本机仅 HTTP 客户端,局域网 RTT ~0.3 ms(tailscale,传输层 ~5 ms p50)
 测量层: **HTTP 端到端**(网络 + JSON + tokenize + 推理),除标注外均为 3 次取中位数
-复现: `just bench`(全量)/ `just bench -- --quick`;本文补充数字来自 `scripts/probe_omlx.sh` 与临时脚本,核心场景已固化在 `bench.ts`
-对比基线: [BENCHMARK.md](BENCHMARK.md)(本机 strix-halo ROCm fp32 自建服务)
+复现: `just bench`(单后端)/ `bash scripts/ab_bench.py`(strix-halo vs oMLX 双端 A/B,同请求×3 取中位)
+对比基线: [BENCHMARK.md](BENCHMARK.md)(tufa = Ryzen AI MAX+ 395 / Radeon 8060S, ROCm fp32 自建服务;本机测得 24 ms 单条,tufa 走 LAN 后同客户端 31 ms —— LAN+客户端开销 ~7 ms,A/B 双端同等计入)
+
+## A/B 实测:strix-halo(tufa, fp32) vs oMLX(coral M4, bf16)
+
+同请求 ×3 取中位、再跨 3 轮取中位(`scripts/ab_bench.py`):
+
+| 场景 | strix-halo | oMLX M4 | 胜者 |
+|---|---|---|---|
+| 文本单条 | 31.1 ms | **23.1 ms** | oMLX 1.35x |
+| 文本 ×32 | 105.8 ms | **82.0 ms** | oMLX 1.29x |
+| 文本 ×64 | 166.4 ms | **148.0 ms** | oMLX 1.12x(385 vs 432 vec/s) |
+| 图片单张 | 639.5 ms | **512.6 ms** | oMLX 1.25x |
+| 图片 ×8 | 5034.9 ms | **3703.0 ms** | oMLX 1.36x |
+| 音频 1s wav | **66.3 ms** | 500(0.7.1rc1 bug) | strix(唯一可用) |
+| 视频 2s 原生/代理 | **527 ms**(原生 16 帧解码) | 1981 ms@4帧 / 3810ms@8帧 / 7585ms@16帧 | strix 3.6x(等帧数 14x) |
+
+**视频差距是结构性的**:strix 服务端 torchcodec 一次解码 16 帧 + 单次塔前向;oMLX 端点无 video 字段,代理方案是「每帧一次塔前向」,等信息量(16 帧)时 7.6 s vs 0.53 s。检索建库可接受,实时/交互场景用本地。
+
+> 下文各分段表为 oMLX 单端深测(更细的 token 曲线/长尾/维度成本),与上表同口径可互参照;音频行为见「已知问题」。等帧数对比:16 帧 7585 ms vs 527 ms,**14x**。
 
 ## 文本(768d)
 
