@@ -49,4 +49,5 @@ just test-ommlx         # 仅 ommlx:27 项远端活体断言(含 recipes 契约/
 
 ## 性能
 
-见 [BENCHMARK.md](BENCHMARK.md)(strix-halo 实测;CPU fallback 数据在同文件)。
+- 自建(strix-halo ROCm / CPU):[BENCHMARK.md](BENCHMARK.md)
+- oMLX 后端(ommlx,远程 Mac/MLX bf16):[BENCHMARK-OMMLX.md](BENCHMARK-OMMLX.md) — 文本单条 10ms/p99 23ms、批量 ~515 vec/s、5-6.4k tok/s;`just bench` 一键复测

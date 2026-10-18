@@ -54,6 +54,8 @@ CPU 文本路径完全可用(~230/s@32);多模态未测,预期视觉塔慢 3-5 �
 2. 长视频(>30s)按 1fps 采样,时延线性;可用 `video_metadata` 预降采样。
 3. 多并发吞吐受单飞锁限制;如需多租户可改信号量+批聚合(dynamic batching)。
 
+> oMLX 远程后端(`ommlx` profile)的同口径对比数据见 [BENCHMARK-OMMLX.md](BENCHMARK-OMMLX.md)。
+
 ## 结论
 
 单卡 APU 上: 文本检索级 500+ vec/s,单条 24ms;多模态单条亚秒。对 RAG(百级 chunk 批量嵌)与实时查询(24ms)均充裕。
