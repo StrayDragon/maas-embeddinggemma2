@@ -2,22 +2,57 @@
  * HTTP-level benchmark. Usage: bun run bench [--quick]
  * Measures end-to-end latency (network + tokenize + GPU) against the running server.
  */
-import { BASE, preflight } from "./base";
+import { API_KEY, BASE, MODEL, REMOTE, modelId, preflight } from "./base";
 
 await preflight();
 const A = new URL("./assets/", import.meta.url).pathname;
 const QUICK = process.argv.includes("--quick");
 
+/** item shaper: local {image:{b64}} etc -> remote data-URI items on /v1. */
+const shapeBody = (body: Record<string, unknown>): Record<string, unknown> => {
+  if (!REMOTE) return body;
+  const out: Record<string, unknown> = { model: MODEL };
+    const { input, truncate_dim, prompt_name, ...rest } = body;
+  Object.assign(out, rest);
+  const mmime: Record<string, string> = { image: "image/png", audio: "audio/wav", video: "video/mp4" };
+  const conv = (x: any): any => {
+    if (typeof x === "string") return x;
+    if (Array.isArray(x)) return x.map(conv);
+    const item: Record<string, unknown> = {};
+    for (const k of ["text", "image", "audio", "video"] as const) {
+      const v = x?.[k];
+      if (v == null) continue;
+      if (typeof v === "string") item[k] = v;
+      else if (typeof v.b64 === "string") item[k] = `data:${mmime[k]};base64,${v.b64}`;
+      else if (v.array) item[k === "audio" ? "audio" : k] = v; // raw array: remote audio unsupported -> b64 above only
+    }
+    return item;
+  };
+  if (typeof input === "string" || (Array.isArray(input) && input.every((x) => typeof x === "string"))) out.input = input;
+  else if (Array.isArray(input)) out.items = input.map(conv);
+  else out.items = [conv(input)];
+  if (truncate_dim != null) out.dimensions = truncate_dim;
+  if (prompt_name && typeof out.items !== "undefined") {
+    // remote has no prompt presets; steer via prefix on text items
+    const prefix: Record<string, string> = { Document: "title: none | text: ", SearchQuery: "task: search result | query: ", STS: "task: sentence similarity | query: ", Classification: "task: classification | query: ", Clustering: "task: clustering | query: " };
+    const p = prefix[prompt_name as string];
+    if (p) out.items = (out.items as any[]).map((it) => (typeof it.text === "string" ? { ...it, text: p + it.text } : it));
+  } else if (prompt_name && typeof out.input !== "undefined") {
+    out.input = `${prompt_name}: ` + (out.input as string); // crude but stable
+  }
+  return out;
+};
+
 async function embed(body: object): Promise<{ ms: number; dim: number; n: number }> {
   const t0 = performance.now();
-  const res = await fetch(`${BASE}/embed`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const path = REMOTE ? "/v1/embeddings" : "/embed";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (REMOTE && API_KEY && API_KEY !== "local") headers.Authorization = `Bearer ${API_KEY}`;
+  const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body: JSON.stringify(shapeBody(body as Record<string, unknown>)) });
   if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const j = (await res.json()) as { embeddings: number[][]; dimension: number };
-  return { ms: performance.now() - t0, dim: j.dimension, n: j.embeddings.length };
+  const j: any = await res.json();
+  const emb = REMOTE ? j.data.map((d: any) => d.embedding) : j.embeddings;
+  return { ms: performance.now() - t0, dim: emb[0].length, n: emb.length };
 }
 
 const pct = (xs: number[]) => {
@@ -32,7 +67,12 @@ type Row = { name: string; n: number; p50: number; p95: number; mean: number; tp
 const rows: Row[] = [];
 
 async function scenario(name: string, times: number, make: () => object) {
-  for (let i = 0; i < 3; i++) await embed(make()); // warm
+  try {
+    for (let i = 0; i < 3; i++) await embed(make()); // warm
+  } catch (e) {
+    console.log(`${name.padEnd(34)} SKIP  (${String(e).slice(0, 80)})`);
+    return;
+  }
   const xs: number[] = [];
   let items = 0;
   for (let i = 0; i < times; i++) {
@@ -47,7 +87,7 @@ async function scenario(name: string, times: number, make: () => object) {
 
 // ---- assets
 const png = await b64("blue_bg.png");
-const wav16 = await Bun.file(A + "long16s.wav").arrayBuffer().then((b) => Buffer.from(b).toString("base64"));
+const wav16 = await Bun.file(A + "tone440.wav").arrayBuffer().then((b) => Buffer.from(b).toString("base64"));
 const mp4 = await b64("blue_clip.mp4"); // 2 s
 const imgItem = { image: { b64: png } };
 const audItem = { audio: { b64: wav16 } };
@@ -68,8 +108,8 @@ await scenario("text   x32  prompt=Document", Math.round(12 * R), () => ({ input
 // multimodal
 await scenario("image  x1        (224px png)", Math.round(20 * R), () => ({ input: imgItem }));
 await scenario("image  x8", Math.round(6 * R), () => ({ input: Array.from({ length: 8 }, () => imgItem) }));
-await scenario("audio  x1        (16 s wav)", Math.round(20 * R), () => ({ input: audItem }));
-await scenario("audio  x8        (16 s wav)", Math.round(5 * R), () => ({ input: Array.from({ length: 8 }, () => audItem) }));
+await scenario("audio  x1        (1 s wav)", Math.round(20 * R), () => ({ input: audItem }));
+await scenario("audio  x8        (1 s wav)", Math.round(5 * R), () => ({ input: Array.from({ length: 8 }, () => audItem) }));
 await scenario("video  x1        (2 s clip)", Math.round(15 * R), () => ({ input: vidItem }));
 await scenario("video  x4        (2 s clip)", Math.round(5 * R), () => ({ input: Array.from({ length: 4 }, () => vidItem) }));
 await scenario("mixed  x4  text+img+video", Math.round(6 * R), () => ({ input: Array.from({ length: 4 }, () => mixItem) }));

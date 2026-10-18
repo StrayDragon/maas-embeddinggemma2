@@ -31,7 +31,7 @@ def main() -> None:
     lines = [HEADER, ""]
     lines += [
         "# --- profile selector -------------------------------------------------",
-        "# PROFILE=auto probes torch at startup (GPU present -> strix-halo, else cpu).",
+        "# PROFILE=auto probes torch at startup (GPU present -> strix-halo, else cpu; ommlx skips the probe).",
         "# Pin it in .env to skip the probe:",
     ]
     lines += [f"# PROFILE={name}" for name in PROFILES]

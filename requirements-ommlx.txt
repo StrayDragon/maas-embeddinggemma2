@@ -1,0 +1,8 @@
+# ommlx profile: client for a remote oMLX server that already serves the
+# EmbeddingGemma 2 model (e.g. http://coral:11534). No torch / model weights
+# locally -- this venv only needs to speak the API and run the checks.
+requests==2.34.2
+numpy==2.5.4
+pydantic==2.14.1
+pydantic-settings
+python-dotenv==1.2.4

@@ -20,15 +20,18 @@ Single source of truth: regenerate .env.example (contains EVERY profile) via
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROFILES: tuple[str, ...] = ("cpu", "strix-halo")
+_REPO_ROOT = Path(__file__).resolve().parent
+
+PROFILES: tuple[str, ...] = ("cpu", "strix-halo", "ommlx")
 
 
 def _cfg(prefix: str = "") -> SettingsConfigDict:
     return SettingsConfigDict(
-        env_file=".env",
+        env_file=_REPO_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -42,7 +45,7 @@ class _ProfileSelector(BaseSettings):
     model_config = _cfg()
 
     profile: str = "auto"
-    """auto | cpu | strix-halo."""
+    """auto | cpu | strix-halo | ommlx."""
 
 
 class _Common(BaseSettings):
@@ -51,7 +54,7 @@ class _Common(BaseSettings):
     model_config = _cfg()
 
     model_path: str = "models/embeddinggemma-2"
-    """Local path (or HF repo id) of the EmbeddingGemma 2 weights."""
+    """Local path (or HF repo id) of the EmbeddingGemma 2 weights; ommlx uses the served model id."""
 
     host: str = "0.0.0.0"
     """Bind address for the HTTP server."""
@@ -84,9 +87,49 @@ class StrixHaloSettings(_Common):
     model_config = _cfg("STRIX_HALO_")
 
 
+class OmmlxSettings(_Common):
+    """Client of a remote/local oMLX server that already serves the model.
+
+    No local weights or torch: the venv only needs to reach the oMLX HTTP API.
+    ``base_url`` stands in for device/dtype (the server owns those) and the
+    key is read by omlx_settings / client helpers via OMLX_API_KEY.
+    """
+
+    model_config = _cfg("OMLX_")
+
+    model_path: str = "embeddinggemma-2-bf16"
+    """Model id as oMLX serves it (GET /v1/models)."""
+
+    host: str = "127.0.0.1"
+    """Unused for serving; kept so host-based tooling still resolves."""
+
+    base_url: str = ""
+    """oMLX server root, e.g. http://coral:11534 (empty -> omlx_settings default 127.0.0.1:11534)."""
+
+    def resolved_base_url(self) -> str:
+        if self.base_url:
+            return self.base_url.rstrip("/")
+        from omlx_settings import base_url as _default
+
+        return _default()
+
+    api_key: str = ""
+    """Bearer token for /v1/* (OMLX_API_KEY; keep the real value in .env)."""
+
+    timeout_s: float = 120.0
+    """Per-request timeout in seconds (cold oMLX loads can take ~15 s)."""
+
+    device: str = "remote"
+    """Marker only: inference runs on the oMLX host."""
+
+    dtype: str = "remote"
+    """Marker only: dtype is whatever the oMLX checkpoint ships (bf16 here)."""
+
+
 _PROFILE_CLS: dict[str, type[BaseSettings]] = {
     "cpu": CpuSettings,
     "strix-halo": StrixHaloSettings,
+    "ommlx": OmmlxSettings,
 }
 
 

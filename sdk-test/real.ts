@@ -8,13 +8,13 @@
  */
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { BASE, preflight } from "./base";
+import { API_KEY, BASE, MODEL, REMOTE, modelId, preflight } from "./base";
 
 await preflight();
 const OWN = new URL("./assets", import.meta.url).pathname; // synthetic set (make_assets.py)
 const ROOT_ASSETS = new URL("../assets", import.meta.url).pathname; // real media (git-tracked)
 
-const SYNTH = new Set(["blue_bg.png", "blue_clip.mp4", "red_bg.png", "tone440.wav", "tone880.wav", "chord440.wav", "chord660.wav", "long16s.wav", "chord440.m4a", "chord440.mp3", "chord440.opus"]);
+const SYNTH = new Set(["blue_bg.png", "blue_clip.mp4", "red_bg.png", "tone440.wav", "tone880.wav"]);
 
 const KIND: Record<string, string> = {
   png: "image", jpg: "image", jpeg: "image", webp: "image", gif: "image", bmp: "image",
@@ -31,7 +31,52 @@ const check = (name: string, ok: boolean, info: string) => {
   if (!ok) failures++;
 };
 
+const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", wav: "audio/wav", mp3: "audio/mpeg", m4a: "audio/mp4", flac: "audio/flg" };
+const dataUri = (raw: Buffer, ext: string): string => {
+  const mime = MIME[ext] ?? (["wav","mp3","m4a","flac","ogg","opus","aac"].includes(ext) ? "audio/" + ext : "image/" + ext);
+  return `data:${mime};base64,${raw.toString("base64")}`;
+}
+
+async function embedRemote(item: Record<string, unknown>, dims?: number): Promise<number[]> {
+  // remote: {image|audio|text: local path} -> read bytes -> data URI item
+  const body: Record<string, unknown> = { model: MODEL };
+  const it: Record<string, unknown> = {};
+  if (typeof item.text === "string") it.text = item.text;
+  for (const k of ["image", "audio", "video"] as const) {
+    const p = item[k];
+    if (typeof p === "string") {
+      const ext = (p.split(".").pop() ?? "").toLowerCase();
+      it[k === "video" ? "image" : k] = dataUri(Buffer.from(await readFile(p)), ext); // video -> first-frame proxy not possible; see note
+    }
+  }
+  if (!Object.keys(it).length) throw new Error("empty remote item");
+  body.items = [it];
+  if (dims) body.dimensions = dims;
+  const res = await fetch(`${BASE}/v1/embeddings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(API_KEY && API_KEY !== "local" ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  const json: any = await res.json();
+  if (!res.ok) throw new Error(`${res.status} ${JSON.stringify(json).slice(0, 160)}`);
+  return json.data[0].embedding;
+}
+
 async function embed(input: unknown, extra: Record<string, unknown> = {}): Promise<number[]> {
+  if (REMOTE) {
+    if (typeof input === "string") {
+      const res = await fetch(`${BASE}/v1/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(API_KEY && API_KEY !== "local" ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+        body: JSON.stringify({ model: MODEL, input, ...(extra.truncate_dim ? { dimensions: extra.truncate_dim } : {}) }),
+      });
+      const json: any = await res.json();
+      if (!res.ok) throw new Error(`${res.status} ${JSON.stringify(json).slice(0, 160)}`);
+      return json.data[0].embedding;
+    }
+    const item = (Array.isArray(input) ? input[0] : input) as Record<string, unknown>;
+    return embedRemote(item, extra.truncate_dim as number | undefined);
+  }
   const res = await fetch(`${BASE}/embed`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -89,13 +134,22 @@ for (const path of files) {
   const synthetic = SYNTH.has(name);
 
   const t0 = performance.now();
+  if (REMOTE && kind === "video") {
+    console.log(`SKIP  ${name}  (remote: no video field -- extract frames to images client-side)`);
+    continue;
+  }
   let v: number[], v2: number[];
   try {
     const input: unknown = { [kind]: path }; // server-local path
     v = await embed(input);
     v2 = await embed(input);
   } catch (e) {
-    check(name, false, String(e).slice(0, 140));
+    const msg = String(e);
+    if (REMOTE && kind === "audio" && msg.includes("audio inputs")) {
+      console.log(`SKIP  ${name}  (remote: enable embedding_audio_enabled in oMLX model settings)`);
+      continue;
+    }
+    check(name, false, msg.slice(0, 140));
     continue;
   }
   const ms = Math.round(performance.now() - t0);
@@ -139,7 +193,9 @@ const REAL_QUERIES: [string, string][] = [
     let hits = 0;
     const detail: string[] = [];
     for (const [q, substr] of REAL_QUERIES) {
-      const qv = await embed(q, { prompt_name: "SearchQuery" });
+      const qv = REMOTE
+        ? await embed(`task: search result | query: ${q}`)
+        : await embed(q, { prompt_name: "SearchQuery" });
       const rank = [...docVecs.entries()]
         .map(([p, v], i) => ({ i, c: cosine(qv, v), p }))
         .sort((a, b) => b.c - a.c);

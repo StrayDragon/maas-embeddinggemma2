@@ -32,6 +32,22 @@ try text:
     {{py}} scripts/try_embed.py {{quote(text)}}
 
 # ---------------------------------------------------------------- �验证
+# ---------------------------------------------------------------- oMLX (remote engine)
+# 远程 oMLX 后端(如 coral:11534,见 docs/OMMLX.md):.env PROFILE=ommlx + OMLX_* 配置
+ommlx-config:
+    {{py}} -c 'from config import settings; print("profile  = ommlx"); print("base_url =", settings.resolved_base_url()); print("model    =", settings.model_path); print("api_key  =", (settings.api_key[:6] + "...") if settings.api_key else "(unset)")'
+
+# oMLX 端点能力矩阵实测(不改任何状态,只读+推理)
+probe-omlx:
+    ./scripts/probe_omlx.sh
+
+# oMLX 活体测试(19 项;服务器不可达时给出配置提示)
+test-ommlx: (up-guard-ommlx)
+    {{py}} test_ommlx.py
+
+up-guard-ommlx:
+    @{{py}} -c "import sys; sys.exit(0 if __import__('omlx_client').models() else 1)" 2>/dev/null || { echo 'oMLX 不可达 -- 检查 .env OMLX_BASE_URL / OMLX_API_KEY(见 .env.example ommlx 块)'; exit 1; }
+
 up-guard:
     @url=$({{resolve}}) && curl -sf -m 2 "$url/health" >/dev/null || { echo "service unreachable — 先 just serve,或 EMBG2_BASE_URL=http://host:port 指定"; exit 1; }
 
@@ -39,21 +55,54 @@ up-guard:
 test-api: (up-guard)
     {{py}} test_api.py
 
-# TS：AI SDK 语义层（6 项）
-test-sdk: (up-guard)
-    cd sdk-test && bun run test
-
-# TS：全接口 / 双 SDK / 三方一致性（34 项）
+# TS：全接口 / 双 SDK / 三方一致性（34 项）；地址与模型 id 由 endpoint.py/profile 决定，
+# 远端 oMLX 时自动带 OMLX_API_KEY 与 EMBG2_MODEL（见 sdk-test/base.ts）
 test-client: (up-guard)
-    cd sdk-test && bun run client
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
+    export EMBG2_BASE_URL="$url"
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+      {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
+      source /tmp/embg2_env
+    fi
+    cd sdk-test && ../scripts/with_target_env.sh bun run client
 
-# TS：多模态语义（合成素材 8 项，首次先 just assets）
+# TS：AI SDK 语义层（6 项）-- 同样的远端感知
+test-sdk: (up-guard)
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
+    export EMBG2_BASE_URL="$url"
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+      {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
+      source /tmp/embg2_env
+    fi
+    cd sdk-test && ../scripts/with_target_env.sh bun run test
+
+# TS：多模态语义（合成素材 8 项，首次先 just assets）-- 远端感知同上
 test-mm: (up-guard)
-    cd sdk-test && bun run test:mm
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
+    export EMBG2_BASE_URL="$url"
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+      {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
+      source /tmp/embg2_env
+    fi
+    cd sdk-test && ../scripts/with_target_env.sh bun run test:mm
 
-# TS：真实素材结构+语义检索（默认扫 ../assets 真实素材 + ./assets 合成素材）
+# TS：真实素材结构+语义检索（默认扫 ../assets 真实素材 + ./assets 合成素材）-- 远端感知同上
 test-real *paths: (up-guard)
-    cd sdk-test && bun run real {{paths}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
+    export EMBG2_BASE_URL="$url"
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+      {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
+      source /tmp/embg2_env
+    fi
+    cd sdk-test && ../scripts/with_target_env.sh bun run real {{paths}}
 
 # 一键回归：api + sdk + client + mm + real
 check: test-api test-sdk test-client test-mm test-real
@@ -63,8 +112,16 @@ check: test-api test-sdk test-client test-mm test-real
 recall: (up-guard)
     {{py}} retrieval_check.py
 
-# 性能基准（可加 --quick）
+# 性能基准（可加 --quick）-- 远端感知同上
 bench *args: (up-guard)
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
+    export EMBG2_BASE_URL="$url"
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+      {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
+      source /tmp/embg2_env
+    fi
     cd sdk-test && bun run bench {{args}}
 
 # 从 config.py 重新生成 .env.example（配置元信息的唯一来源）
@@ -98,3 +155,10 @@ push:
 tag version:
     git tag {{version}}
     git push origin {{version}}
+
+dbg-env:
+    #!/usr/bin/env bash
+    echo "model from settings: $(.venv/bin/python -c 'from config import settings; print(settings.model_path)')"
+    {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
+    source /tmp/embg2_env
+    echo "env now: [$EMBG2_MODEL]"
