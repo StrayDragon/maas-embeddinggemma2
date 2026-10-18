@@ -1,4 +1,4 @@
-"""Back-compat facade over :mod:`recipes.ommlx_backend` (the implementation).
+"""Back-compat facade over :mod:`recipes.omlx_backend` (the implementation).
 
 Historical import surface kept so existing scripts/tests keep working; new
 code should use the registry::
@@ -8,7 +8,7 @@ code should use the registry::
 
 Everything here delegates; the single source of truth for request shaping,
 media conversion and the capability notes lives in
-``recipes/ommlx_backend.py`` (see its docstring for the 0.7.1rc1 audio/video
+``recipes/omlx_backend.py`` (see its docstring for the 0.7.1rc1 audio/video
 caveats).
 """
 
@@ -18,22 +18,22 @@ import urllib.error
 from pathlib import Path
 from typing import Any
 
-from recipes.ommlx_backend import OmmlxBackendError
-from recipes.ommlx_backend import (
+from recipes.omlx_backend import OmlxBackendError
+from recipes.omlx_backend import (
     embed_item as _embed_item_core,
     embed_batch as _embed_batch_core,
     embed_text as _embed_text_core,
     _embed_request,
 )
 
-OmmlxError = OmmlxBackendError
-OmlxError = OmmlxBackendError  # legacy alias
+OmlxError = OmlxBackendError
+OmlxError = OmlxBackendError  # legacy alias
 
 
 from config import settings as settings  # re-exported: tests patch oc.settings
 
 def _request(path: str, payload: dict | None = None, method: str = "POST", *, timeout_s: float | None = None):
-    """Legacy raw request (tests use it); routes through recipes.ommlx_backend._post-alike."""
+    """Legacy raw request (tests use it); routes through recipes.omlx_backend._post-alike."""
     import urllib.request
 
     base = settings.resolved_base_url()
@@ -51,9 +51,9 @@ def _request(path: str, payload: dict | None = None, method: str = "POST", *, ti
         with urllib.request.urlopen(req, data=data, timeout=timeout) as resp:
             return json_load(resp.read())
     except urllib.error.HTTPError as e:
-        raise OmmlxBackendError(e.code, e.read().decode(errors="replace")[:400], path) from e
+        raise OmlxBackendError(e.code, e.read().decode(errors="replace")[:400], path) from e
     except (urllib.error.URLError, TimeoutError) as e:
-        raise OmmlxBackendError(0, f"unreachable ({e})", path) from e
+        raise OmlxBackendError(0, f"unreachable ({e})", path) from e
 
 
 def embed(inputs: Any, **kw) -> list[list[float]]:
@@ -78,7 +78,7 @@ def embed(inputs: Any, **kw) -> list[list[float]]:
 
 
 def _coerce(x: Any) -> Any:
-    return x  # items pass through; recipes.ommlx_backend._to_item normalises
+    return x  # items pass through; recipes.omlx_backend._to_item normalises
 
 
 def _parts_to_item(parts: list[dict]) -> dict:
@@ -114,7 +114,7 @@ def _parts_to_item(parts: list[dict]) -> dict:
 
 
 def _embed_batch_items(items: list[dict], *, dim: int | None = None) -> list[list[float]]:
-    from recipes.ommlx_backend import _to_item
+    from recipes.omlx_backend import _to_item
 
     return _embed_request(
         {"model": __import__("config").settings.model_path, "items": [_to_item(i) for i in items]},
@@ -150,7 +150,7 @@ def json_load(raw: bytes) -> Any:
 
 
 def image_data_uri(img: Any) -> str:
-    from recipes.ommlx_backend import _image_value
+    from recipes.omlx_backend import _image_value
 
     return _image_value(img)
 
@@ -161,5 +161,5 @@ def embed_text_task(text: str, task: str, dim: int | None = None) -> list[float]
 
 __all__ = [
     "embed", "embed_batch", "embed_text_task", "cosine", "models",
-    "image_data_uri", "OmmlxError", "OmlxError", "OmmlxBackendError",
+    "image_data_uri", "OmlxError", "OmlxError", "OmlxBackendError",
 ]

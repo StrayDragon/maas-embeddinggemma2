@@ -18,8 +18,8 @@ case "$profile" in
                 --extra-index-url https://download.pytorch.org/whl/cpu
                 --index-strategy unsafe-best-match)
     ;;
-  ommlx)
-    # 远程 oMLX 服务客户端:只装 requests(见 requirements-ommlx.txt),
+  omlx)
+    # 远程 oMLX 服务客户端:只装 requests(见 requirements-omlx.txt),
     # 不装 torch 栈;权重在服务端(coral),本机仅作 API 客户端/测试。
     torch_pkgs=()
     index_args=()
@@ -39,7 +39,7 @@ if [ ${#torch_pkgs[@]} -gt 0 ]; then
   uv pip install --python "$py" -r /tmp/req-rest.$$.txt
   rm -f /tmp/req-rest.$$.txt
 else
-  uv pip install --python "$py" -r requirements-ommlx.txt
+  uv pip install --python "$py" -r requirements-omlx.txt
 fi
 
 if [ ! -f .env ]; then

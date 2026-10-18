@@ -4,12 +4,12 @@ A *recipe* is a way of getting EmbeddingGemma 2 embeddings:
 
 - ``local``  -- this repo's FastAPI server (``server.py``); full multimodal
                surface (``/embed``, task presets, video, DashScope shape)
-- ``ommlx``  -- a remote/local `oMLX <https://github.com/jundot/omlx>`_
+- ``omlx``   -- a remote/local `oMLX <https://github.com/jundot/omlx>`_
                instance serving the model; OpenAI-shape ``/v1/embeddings``
                with the subset documented in ``docs/OMMLX.md``
 
 The active recipe follows ``config.ACTIVE_PROFILE`` (``cpu``/``strix-halo``
-run the local server process; ``ommlx`` is a pure client of the remote API).
+run the local server process; ``omlx`` is a pure client of the remote API).
 Clients, tests and helper scripts ask the registry instead of hand-rolling
 per-backend branches:
 
@@ -65,12 +65,12 @@ class BackendError(RuntimeError):
 
 
 def _profile_backend_name() -> str:
-    return "ommlx" if ACTIVE_PROFILE == "ommlx" else "local"
+    return "omlx" if ACTIVE_PROFILE == "omlx" else "local"
 
 
 _REGISTRY: dict[str, str] = {
     "local": "recipes.local_backend",
-    "ommlx": "recipes.ommlx_backend",
+    "omlx": "recipes.omlx_backend",
 }
 
 
@@ -88,7 +88,7 @@ def _load(name: str) -> Backend:
         embed_item=module.embed_item,
         embed_many=module.embed_many,
         embed_file=module.embed_file,
-        error=getattr(module, f"{'Ommlx' if name == 'ommlx' else 'Local'}BackendError"),
+        error=getattr(module, f"{'Omlx' if name == 'omlx' else 'Local'}BackendError"),
     )
     return backend
 

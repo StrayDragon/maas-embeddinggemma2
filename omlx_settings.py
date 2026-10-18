@@ -1,4 +1,4 @@
-"""oMLX server settings (profile ``ommlx``).
+"""oMLX server settings (profile ``omlx``).
 
 Talks to a remote/local oMLX instance that serves EmbeddingGemma 2
 (model id ``embeddinggemma-2-bf16``). The key lives in ``.env`` (git-ignored);

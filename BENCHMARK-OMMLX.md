@@ -1,4 +1,4 @@
-# 性能报告 — oMLX 后端(`ommlx` profile)
+# 性能报告 — oMLX 后端(`omlx` profile)
 
 环境: coral = **Apple M4 / 16 GB**(macOS, oMLX 0.7.1rc1, MLX/Metal, **bf16**)serve `embeddinggemma-2-bf16` · 本机仅 HTTP 客户端,局域网 RTT ~0.3 ms(tailscale,传输层 ~5 ms p50)
 测量层: **HTTP 端到端**(网络 + JSON + tokenize + 推理),除标注外均为 3 次取中位数
@@ -82,7 +82,7 @@
 ## 冷启动 / 资源(oMLX 侧观测)
 
 - engine 常驻(文本+视觉塔)~1.5 GiB;audio tower 再 +0.6 GiB(未启用则不计)
-- engine 冷加载→首次可用 ~15 s(见 `test-ommlx` 首调);改模型设置触发重载同量级
+- engine 冷加载→首次可用 ~15 s(见 `test-omlx` 首调);改模型设置触发重载同量级
 - 首请求 GPU 唤醒 +40 ms(oMLX `gpu_keep_warm_interval` 默认关)
 - 内存余量口径:health `final_ceiling` 空闲时 ~7.8 GiB(动态,随系统占用浮动)
 
@@ -94,4 +94,4 @@
 
 ## 结论
 
-oMLX/MLX 后端在本场景**文本全面占优**(单条 10 ms、p99 23 ms、5-6.4k tok/s、批量 ~515 vec/s 与本地打平)、单图快 25%,且零本地运维;短板是多模态批量化(图片不摊薄、无原生视频/音频暂不可用)。检索型 RAG(文本为主+图片建库)直接用 `ommlx` profile 即可;重多模态实时管道仍以本地 strix-halo 为佳。
+oMLX/MLX 后端在本场景**文本全面占优**(单条 10 ms、p99 23 ms、5-6.4k tok/s、批量 ~515 vec/s 与本地打平)、单图快 25%,且零本地运维;短板是多模态批量化(图片不摊薄、无原生视频/音频暂不可用)。检索型 RAG(文本为主+图片建库)直接用 `omlx` profile 即可;重多模态实时管道仍以本地 strix-halo 为佳。

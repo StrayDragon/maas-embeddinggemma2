@@ -37,20 +37,20 @@ try-task text task dim="256":
 
 # ---------------------------------------------------------------- �验证
 # ---------------------------------------------------------------- oMLX (remote engine)
-# 远程 oMLX 后端(如 coral:11534,见 docs/OMMLX.md):.env PROFILE=ommlx + OMLX_* 配置
-ommlx-config:
-    {{py}} -c 'from config import settings; print("profile  = ommlx"); print("base_url =", settings.resolved_base_url()); print("model    =", settings.model_path); print("api_key  =", (settings.api_key[:6] + "...") if settings.api_key else "(unset)")'
+# 远程 oMLX 后端(如 coral:11534,见 docs/OMMLX.md):.env PROFILE=omlx + OMLX_* 配置
+omlx-config:
+    {{py}} -c 'from config import settings; print("profile  = omlx"); print("base_url =", settings.resolved_base_url()); print("model    =", settings.model_path); print("api_key  =", (settings.api_key[:6] + "...") if settings.api_key else "(unset)")'
 
 # oMLX 端点能力矩阵实测(不改任何状态,只读+推理)
 probe-omlx:
     ./scripts/probe_omlx.sh
 
 # oMLX 活体测试(19 项;服务器不可达时给出配置提示)
-test-ommlx: (up-guard-ommlx)
-    {{py}} test_ommlx.py
+test-omlx: (up-guard-omlx)
+    {{py}} test_omlx.py
 
-up-guard-ommlx:
-    @{{py}} -c "import sys; sys.exit(0 if __import__('omlx_client').models() else 1)" 2>/dev/null || { echo 'oMLX 不可达 -- 检查 .env OMLX_BASE_URL / OMLX_API_KEY(见 .env.example ommlx 块)'; exit 1; }
+up-guard-omlx:
+    @{{py}} -c "import sys; sys.exit(0 if __import__('omlx_client').models() else 1)" 2>/dev/null || { echo 'oMLX 不可达 -- 检查 .env OMLX_BASE_URL / OMLX_API_KEY(见 .env.example omlx 块)'; exit 1; }
 
 up-guard:
     @url=$({{resolve}}) && curl -sf -m 2 "$url/health" >/dev/null || { echo "service unreachable — 先 just serve,或 EMBG2_BASE_URL=http://host:port 指定"; exit 1; }
@@ -66,7 +66,7 @@ test-client: (up-guard)
     set -euo pipefail
     url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
     export EMBG2_BASE_URL="$url"
-    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='omlx' else 1)" 2>/dev/null; then
       {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
       source /tmp/embg2_env
     fi
@@ -78,7 +78,7 @@ test-sdk: (up-guard)
     set -euo pipefail
     url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
     export EMBG2_BASE_URL="$url"
-    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='omlx' else 1)" 2>/dev/null; then
       {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
       source /tmp/embg2_env
     fi
@@ -90,7 +90,7 @@ test-mm: (up-guard)
     set -euo pipefail
     url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
     export EMBG2_BASE_URL="$url"
-    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='omlx' else 1)" 2>/dev/null; then
       {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
       source /tmp/embg2_env
     fi
@@ -102,7 +102,7 @@ test-real *paths: (up-guard)
     set -euo pipefail
     url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
     export EMBG2_BASE_URL="$url"
-    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='omlx' else 1)" 2>/dev/null; then
       {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
       source /tmp/embg2_env
     fi
@@ -122,7 +122,7 @@ bench *args: (up-guard)
     set -euo pipefail
     url=$( {{py}} -c "from endpoint import resolve_base_url; print(resolve_base_url())" )
     export EMBG2_BASE_URL="$url"
-    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='ommlx' else 1)" 2>/dev/null; then
+    if {{py}} -c "import sys; from config import ACTIVE_PROFILE; sys.exit(0 if ACTIVE_PROFILE=='omlx' else 1)" 2>/dev/null; then
       {{py}} -c 'from config import settings; print("export EMBG2_MODEL=%s" % settings.model_path)' > /tmp/embg2_env
       source /tmp/embg2_env
     fi

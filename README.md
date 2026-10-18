@@ -2,19 +2,20 @@
 
 EmbeddingGemma 2 (740M) 多模态 embedding 服务:文本 / 图片 / 音频 / 视频 / 交错输入 → 统一 768 维向量(MRL 768/512/256/128)。无状态单进程,机器差异全部收敛到 profile。API 详情见 [docs/API.md](docs/API.md)。
 
-除自建推理外,也支持 **oMLX 远程后端**(`ommlx` profile):Mac 上 oMLX 直接 serve 本模型,本仓库退化为其客户端/测试台,详见 [docs/OMMLX.md](docs/OMMLX.md)。
+除自建推理外,也支持 **oMLX 远程后端**(`omlx` profile):Mac 上 oMLX 直接 serve 本模型,本仓库退化为其客户端/测试台,详见 [docs/OMMLX.md](docs/OMMLX.md)。
 
 ## 快速开始
 
 ```bash
 just setup strix-halo   # 或 just setup cpu:建 venv + 装对应 torch 栈 + 写 .env(PROFILE=<name>)
-just setup ommlx        # 或:远端 oMLX 后端,轻量 venv(无 torch),配置 OMLX_BASE_URL/OMLX_API_KEY 即用
-just serve              # 另: just dev 热重载;just config 查看生效配置(ommlx 下打印远端地址)
-just check              # 一键回归(首次素材: just assets);ommlx 下自动切远端断言
-just test-ommlx         # 仅 ommlx:27 项远端活体断言(含 recipes 契约/视频抽帧)
+just setup omlx        # 或:远端 oMLX 后端,轻量 venv(无 torch),配置 OMLX_BASE_URL/OMLX_API_KEY 即用
+just serve              # 另: just dev 热重载;just config 查看生效配置(omlx 下打印远端地址)
+just check              # 一键回归(首次素材: just assets);omlx 下自动切远端断言
+just test-omlx         # 仅 omlx:27 项远端活体断言(含 recipes 契约/视频抽帧)
 ```
 
-后端抽象:所有客户端代码走 `recipes.get_backend()`(local / ommlx 两个 recipe,`PROFILE` 选路,能力差异在 recipe 内吸收)—— 见 `docs/OMMLX.md` 的「后端抽象」节。
+后端抽象:所有客户端代码走 `recipes.get_backend()`(local / omlx 两个 recipe,`PROFILE` 选路,能力差异在 recipe 内吸收)—— 见 `docs/OMMLX.md` 的「后端抽象」节。
+多后端部署(路由键/向量一致性/负载均衡):**[docs/MULTI_BACKEND.md](docs/MULTI_BACKEND.md)**。
 
 ## API 一览
 
@@ -33,7 +34,7 @@ just test-ommlx         # 仅 ommlx:27 项远端活体断言(含 recipes 契约/
 ## 配置
 
 - 唯一真源 [`config.py`](config.py)(pydantic-settings);`.env.example` 由它生成、含**全部 profile 的全部变量**:`just env-example`。
-- `.env` 中 `PROFILE=auto | cpu | strix-halo | ommlx` 选择 profile(`auto` 启动时探测:有 GPU → strix-halo,否则 cpu;建议写死以跳过探测)。
+- `.env` 中 `PROFILE=auto | cpu | strix-halo | omlx` 选择 profile(`auto` 启动时探测:有 GPU → strix-halo,否则 cpu;建议写死以跳过探测)。
 - 覆盖项必须带 profile 前缀,一台机器一个块、互不干扰:`CPU_DEVICE=...`、`STRIX_HALO_PORT=...`。真实环境变量 > `.env` > profile 默认。
 - 运行期 device/dtype 细节(auto 回退、ROCm bf16 批量 NaN → fp32)见 `server.py` 的 `_resolve_device/_resolve_dtype`。
 
@@ -43,11 +44,11 @@ just test-ommlx         # 仅 ommlx:27 项远端活体断言(含 recipes 契约/
 | --- | --- | --- | --- |
 | `cpu` | 纯 CPU | `CPU_` | cpu wheels |
 | `strix-halo` | AMD Radeon 8060S(gfx1151, ROCm 7.2) | `STRIX_HALO_` | rocm7.2 wheels,fp32 服务默认 |
-| `ommlx` | 远程/本机 [oMLX](https://github.com/jundot/omlx) 已 serve 本模型 | `OMLX_` | 无(纯 HTTP 客户端,`requirements-ommlx.txt`) |
+| `omlx` | 远程/本机 [oMLX](https://github.com/jundot/omlx) 已 serve 本模型 | `OMLX_` | 无(纯 HTTP 客户端,`requirements-omlx.txt`) |
 
 新增机器三步:`config.py` 加一个 `XxxSettings` 子类(定前缀与默认值)→ `scripts/setup_env.sh` 加一个 case(装机配方)→ `just env-example`。
 
 ## 性能
 
 - 自建(strix-halo ROCm / CPU):[BENCHMARK.md](BENCHMARK.md)
-- oMLX 后端(ommlx,远程 Mac/MLX bf16):[BENCHMARK-OMMLX.md](BENCHMARK-OMMLX.md) — 文本单条 10ms/p99 23ms、批量 ~515 vec/s、5-6.4k tok/s;`just bench` 一键复测
+- oMLX 后端(omlx,远程 Mac/MLX bf16):[BENCHMARK-OMMLX.md](BENCHMARK-OMMLX.md) — 文本单条 10ms/p99 23ms、批量 ~515 vec/s、5-6.4k tok/s;`just bench` 一键复测

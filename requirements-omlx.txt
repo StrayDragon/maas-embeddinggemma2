@@ -1,4 +1,4 @@
-# ommlx profile: client for a remote oMLX server that already serves the
+# omlx profile: client for a remote oMLX server that already serves the
 # EmbeddingGemma 2 model (e.g. http://coral:11534). No torch / model weights
 # locally -- this venv only needs to speak the API and run the checks.
 requests==2.34.2

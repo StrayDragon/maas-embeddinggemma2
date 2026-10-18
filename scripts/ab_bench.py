@@ -38,7 +38,7 @@ def _headers(native):
 
 BACKENDS = {
     "strix-halo(tufa)": {"base": "http://tufa:50233", "model": "embeddinggemma-2", "native": True},
-    "ommlx(coral)": {"base": "http://coral:11534/v1", "model": "embeddinggemma-2-bf16", "native": False},
+    "omlx(coral)": {"base": "http://coral:11534/v1", "model": "embeddinggemma-2-bf16", "native": False},
 }
 
 def b64(p):
@@ -116,7 +116,7 @@ def bench(name, cfg):
     def vid1():
         if native:
             ms = post(base + "/embed", {"input": {"video": {"b64": MP4}}})
-        else:  # ommlx: frame-extraction proxy happens client-side; measure server part only
+        else:  # omlx: frame-extraction proxy happens client-side; measure server part only
             import subprocess, tempfile, glob
             with tempfile.TemporaryDirectory() as td:
                 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i",

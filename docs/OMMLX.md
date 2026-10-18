@@ -1,19 +1,19 @@
-# oMLX 后端(ommlx profile)
+# oMLX 后端(omlx profile)
 
 在 Mac 上用 [oMLX](https://github.com/jundot/omlx) 直接 serve EmbeddingGemma 2,本仓库作为它的客户端/测试台。本机不再装 torch —— 推理与权重都在 oMLX 侧。
 
 ## 快速开始
 
 ```bash
-just setup ommlx          # 轻量 venv(仅 requests/numpy/pydantic,见 requirements-ommlx.txt)
-# 编辑 .env(已由 setup 写好 PROFILE=ommlx,补两行):
+just setup omlx          # 轻量 venv(仅 requests/numpy/pydantic,见 requirements-omlx.txt)
+# 编辑 .env(已由 setup 写好 PROFILE=omlx,补两行):
 #   OMLX_BASE_URL=http://coral:11534
 #   OMLX_API_KEY=<你的 key>(勿提交;.env 已 gitignore)
-just ommlx-config         # 校验配置与连通性
-just test-ommlx           # 22 项活体断言(维度/MRL/跨模态语义/鉴权/容错)
+just omlx-config         # 校验配置与连通性
+just test-omlx           # 22 项活体断言(维度/MRL/跨模态语义/鉴权/容错)
 ```
 
-SDK 侧回归(`test-sdk/client/mm/real/bench`)会经 `scripts/with_target_env.sh` 自动拿到远端地址与模型 id,同一套命令在本地/ommlx 两种 profile 下都能跑:
+SDK 侧回归(`test-sdk/client/mm/real/bench`)会经 `scripts/with_target_env.sh` 自动拿到远端地址与模型 id,同一套命令在本地/omlx 两种 profile 下都能跑:
 
 ```bash
 just test-client          # 30/30 PASS(远端模式自动切换断言)
@@ -34,8 +34,8 @@ just recall               # Python 跨模态 sanity 3/3
 | 文+图融合 | ✅ | 单输入内 text+image → 一个 768 维向量 |
 | MRL 截断 | ✅ | `dimensions: 128/256/512/768`,服务端截断后**重新归一化**(实测 norm=1.0000) |
 | usage 计数 | ✅ | 图片计 280 tokens(与模型卡一致) |
-| 音频 | ⚠️ 服务端 500 | 开关 `embedding_audio_enabled` 已在 Web UI 打开(tower 常驻 ~1.5 GB,错误从 "not supported" 变 500 可证);但 0.7.1rc1 的音频推理对**所有**编码/时长/形状都返回 500(wav 8-48k 0.25-10s 含上游测试同款 fixture、mp3/ogg/opus、items 与 content-parts 两种形状、预热/重载后均复现)→ 需 coral 服务端日志定位,客户端无进一步空间;`test_ommlx` 条件跳过 |
-| 视频 | ⚠️ 客户端抽帧 | `/v1/embeddings` 无 video 字段;`recipes.ommlx_backend.embed_video()` 已封装(fps 抽帧→逐帧 embed→均值归一),实测 zh 查询对双视频判别 2/2 top1 正确,与最佳单帧差距 ~0.01 |
+| 音频 | ⚠️ 服务端 500 | 开关 `embedding_audio_enabled` 已在 Web UI 打开(tower 常驻 ~1.5 GB,错误从 "not supported" 变 500 可证);但 0.7.1rc1 的音频推理对**所有**编码/时长/形状都返回 500(wav 8-48k 0.25-10s 含上游测试同款 fixture、mp3/ogg/opus、items 与 content-parts 两种形状、预热/重载后均复现)→ 需 coral 服务端日志定位,客户端无进一步空间;`test_omlx` 条件跳过 |
+| 视频 | ⚠️ 客户端抽帧 | `/v1/embeddings` 无 video 字段;`recipes.omlx_backend.embed_video()` 已封装(fps 抽帧→逐帧 embed→均值归一),实测 zh 查询对双视频判别 2/2 top1 正确,与最佳单帧差距 ~0.01 |
 | 任务前缀 | ✅ 手动 | 服务端不注入 prompt 模板,`task: ... \| query: ...` 直接写进文本(实测 steered 0.778 / plain 0.827 vs doc,均远超随机) |
 | `max_model_len` | 262144(声明) | 实际 embedding 上下文 8192,超长输入服务端静默截断,不报错 |
 | 多模型 | ✅ | 同服 bge-m3(dim 1024)与 eg2(dim 768)各自成空间,勿跨模型比相似度 |
@@ -56,15 +56,15 @@ just recall               # Python 跨模态 sanity 3/3
 
 ```python
 from recipes import get_backend
-b = get_backend()            # PROFILE=ommlx -> oMLX;cpu/strix-halo -> 本地 server
+b = get_backend()            # PROFILE=omlx -> oMLX;cpu/strix-halo -> 本地 server
 b.embed_text("q", task="search", dim=256)   # 任务前缀差异被 recipe 吸收
-b.embed_file("clip.mp4")                    # ommlx 下自动走抽帧;local 走原生 video
+b.embed_file("clip.mp4")                    # omlx 下自动走抽帧;local 走原生 video
 b.embed_item({"text": "t", "image": "p.png", "audio": "a.wav"})
 b.capabilities                               # 按能力降级而非 try/except
 ```
 
 - `recipes/local_backend.py` -- 本仓库 server(全能力,`prompt_name` 预设)
-- `recipes/ommlx_backend.py` -- oMLX(能力矩阵见上;video 抽帧/任务前缀注文本都在这层吸收)
+- `recipes/omlx_backend.py` -- oMLX(能力矩阵见上;video 抽帧/任务前缀注文本都在这层吸收)
 - `omlx_client.py` 保留为兼容 facade,实现已全部移入 recipes
 
 ## 客户端用法(`omlx_client.py`,零 torch 依赖)
@@ -80,7 +80,7 @@ embed([{"type": "text", "text": "t"},
 embed("q", dimensions=256)                            # MRL,已归一化
 ```
 
-错误统一 `OmmlxError(status, body)`:401(鉴权)、400(形状/媒体)、404(模型名)、0(不可达,提示检查 `OMLX_BASE_URL`)。
+错误统一 `OmlxError(status, body)`:401(鉴权)、400(形状/媒体)、404(模型名)、0(不可达,提示检查 `OMLX_BASE_URL`)。
 
 ## oMLX 侧模型设置备忘(源码结论,来自 ../omlx)
 
@@ -106,12 +106,13 @@ embed("q", dimensions=256)                            # MRL,已归一化
 - ⚠️ 谨慎:**同一 collection 混双后端写入** —— 跨后端混检 recall@1 掉 37.5%(14/16→8/16);必须双写+分别检索,或全量重嵌。
 - ❌ 无意义:纯吞吐型 round-robin —— 两引擎内部各自串行(coral ~94/s 上限,tufa ~37/s),混发 16 并发仅 68/s,反而低于单压 coral。要扩吞吐应加 coral 侧副本,而非异构混发。
 
-> 数据:16 样本云质心分析 + 8 组检索面板;复测脚本思路见 `scripts/ab_bench.py`(请求构造同款)。
+> 数据:16 样本云质心分析 + 8 组检索面板;复测脚本见 `scripts/ab_bench.py`。
+> 完整的落地指南(路由键设计/四种混用姿势/迁移流程):**[MULTI_BACKEND.md](MULTI_BACKEND.md)**。
 
 ## 已知坑
 
 1. **图片必须 data URI** —— 客户端 `omlx_client` 已自动转换;裸 URL 会被 oMLX 拒绝(与本地 server 不同)。
-2. **音频 500** —— 开关已开(见上);0.7.1rc1 服务端推理持续 500,`test-ommlx` 条件跳过。修复需 coral 侧 `omlx` 服务日志(stderr)定位 mlx_vlm 音频链路异常。
+2. **音频 500** —— 开关已开(见上);0.7.1rc1 服务端推理持续 500,`test-omlx` 条件跳过。修复需 coral 侧 `omlx` 服务日志(stderr)定位 mlx_vlm 音频链路异常。
 3. **无视频入参** —— 需要视频语义时客户端抽帧(ffmpeg/av)转图片批量。
 4. **8192 才是真实上下文** —— `/v1/models` 的 262144 是 RoPE 上限;超长文本会被截断而非报错,重要内容放前面。
 5. **两个模型两套空间** —— bge-m3 与 eg2 的向量不可混用;`dim` 字段可作断言。

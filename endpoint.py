@@ -25,7 +25,7 @@ def _candidates() -> list[str]:
     try:
         from config import settings
 
-        # ommlx profile: the "service" IS the remote oMLX server
+        # omlx profile: the "service" IS the remote oMLX server
         if hasattr(settings, "resolved_base_url"):
             out.append(settings.resolved_base_url())
         host = settings.host

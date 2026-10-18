@@ -147,7 +147,7 @@ for (const path of files) {
     const msg = String(e);
     if (REMOTE && kind === "audio") {
       // flag is on server-side; 0.7.1rc1 audio inference 500s on every
-      // encoding (documented in docs/OMMLX.md + recipes/ommlx_backend)
+      // encoding (documented in docs/OMMLX.md + recipes/omlx_backend)
       console.log(`SKIP  ${name}  (remote audio: 0.7.1rc1 server 500 -- see docs/OMMLX.md)`);
       continue;
     }

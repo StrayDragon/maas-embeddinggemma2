@@ -1,6 +1,6 @@
-"""Live tests against the oMLX server (profile ommlx).
+"""Live tests against the oMLX server (profile omlx).
 
-Run:  just test-ommlx        (or: .venv/bin/python test_ommlx.py [-k name])
+Run:  just test-omlx        (or: .venv/bin/python test_omlx.py [-k name])
 Reads OMLX_* from .env / environment; skips cleanly when the server is down.
 
 Covers the capability matrix measured on oMLX 0.7.1rc1 + embeddinggemma-2-bf16
@@ -91,7 +91,7 @@ def test_models_visible() -> None:
 def test_text_single() -> None:
     from omlx_client import embed
 
-    v = embed("hello ommlx")
+    v = embed("hello omlx")
     _record("single text 768d", len(v) == 1 and len(v[0]) == 768)
 
 
@@ -221,7 +221,7 @@ def test_auth_error_surface() -> None:
     import urllib.error
     import urllib.request
 
-    import recipes.ommlx_backend as ob
+    import recipes.omlx_backend as ob
 
     base = ob.settings.resolved_base_url()
     req = urllib.request.Request(f"{base}/v1/models")
@@ -237,7 +237,7 @@ def test_auth_error_surface() -> None:
 
 def test_unreachable_surface() -> None:
     """Backend reads settings via its module attribute -> patch there."""
-    import recipes.ommlx_backend as ob
+    import recipes.omlx_backend as ob
 
     saved = ob.settings
 
@@ -253,17 +253,17 @@ def test_unreachable_surface() -> None:
     try:
         ob.embed_text("x")
         ok, note = False, "no error"
-    except ob.OmmlxBackendError as e:
+    except ob.OmlxBackendError as e:
         ok, note = e.status == 0, str(e)[:60]
     finally:
         ob.settings = saved
-    _record("unreachable server -> OmmlxError(0)", ok, note)
+    _record("unreachable server -> OmlxError(0)", ok, note)
 
 
 def test_audio_if_enabled() -> None:
     """Server flag embedding_audio_enabled is ON (owner flipped it); inference
     currently 500s server-side on every encoding/shape tried -- see
-    recipes/ommlx_backend docstring. Skip with the real status until fixed."""
+    recipes/omlx_backend docstring. Skip with the real status until fixed."""
     from recipes import get_backend
 
     b = get_backend()
@@ -294,12 +294,12 @@ def test_second_model_isolation() -> None:
 
 
 def test_registry_backend_contract() -> None:
-    """recipes.get_backend exposes the documented contract for ommlx."""
+    """recipes.get_backend exposes the documented contract for omlx."""
     from recipes import get_backend
 
     b = get_backend()
     caps = b.capabilities
-    _record("registry: active backend is ommlx", b.name == "ommlx", b.name)
+    _record("registry: active backend is omlx", b.name == "omlx", b.name)
     _record("registry: capability flags", caps.get("text") and caps.get("image")
             and caps.get("video") and not caps.get("prompt_presets"), str(caps))
     v = b.embed_text("registry smoke", task="search", dim=256)

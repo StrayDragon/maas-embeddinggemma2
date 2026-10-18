@@ -26,7 +26,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parent
 
-PROFILES: tuple[str, ...] = ("cpu", "strix-halo", "ommlx")
+PROFILES: tuple[str, ...] = ("cpu", "strix-halo", "omlx")
 
 
 def _cfg(prefix: str = "") -> SettingsConfigDict:
@@ -45,7 +45,7 @@ class _ProfileSelector(BaseSettings):
     model_config = _cfg()
 
     profile: str = "auto"
-    """auto | cpu | strix-halo | ommlx."""
+    """auto | cpu | strix-halo | omlx."""
 
 
 class _Common(BaseSettings):
@@ -54,7 +54,7 @@ class _Common(BaseSettings):
     model_config = _cfg()
 
     model_path: str = "models/embeddinggemma-2"
-    """Local path (or HF repo id) of the EmbeddingGemma 2 weights; ommlx uses the served model id."""
+    """Local path (or HF repo id) of the EmbeddingGemma 2 weights; omlx uses the served model id."""
 
     host: str = "0.0.0.0"
     """Bind address for the HTTP server."""
@@ -87,7 +87,7 @@ class StrixHaloSettings(_Common):
     model_config = _cfg("STRIX_HALO_")
 
 
-class OmmlxSettings(_Common):
+class OmlxSettings(_Common):
     """Client of a remote/local oMLX server that already serves the model.
 
     No local weights or torch: the venv only needs to reach the oMLX HTTP API.
@@ -129,7 +129,7 @@ class OmmlxSettings(_Common):
 _PROFILE_CLS: dict[str, type[BaseSettings]] = {
     "cpu": CpuSettings,
     "strix-halo": StrixHaloSettings,
-    "ommlx": OmmlxSettings,
+    "omlx": OmlxSettings,
 }
 
 

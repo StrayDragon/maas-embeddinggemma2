@@ -1,4 +1,4 @@
-"""``ommlx`` recipe: client of an oMLX server serving EmbeddingGemma 2.
+"""``omlx`` recipe: client of an oMLX server serving EmbeddingGemma 2.
 
 Server contract measured on oMLX 0.7.1rc1 + ``embeddinggemma-2-bf16``
 (details and the full capability matrix: docs/OMMLX.md):
@@ -20,7 +20,7 @@ live here so callers stay clean):
   duration / shape tried (wav 8-48k 0.25-10 s incl. upstream's own test
   fixture, mp3/ogg/opus, items and content-part forms, across engine
   reloads). Server logs are needed to root-cause; until then ``audio`` is
-  reported as a capability that may fail, and ``test_ommlx`` skips it.
+  reported as a capability that may fail, and ``test_omlx`` skips it.
 """
 
 from __future__ import annotations
@@ -41,14 +41,14 @@ from config import settings
 from . import BackendError
 
 
-class OmmlxBackendError(BackendError):
+class OmlxBackendError(BackendError):
     def __init__(self, status: int, body: Any, path: str = ""):
         self.status = status  # 0 == unreachable
         self.body = body
         super().__init__(f"oMLX {path or 'request'} failed: HTTP {status}: {body}")
 
 
-name = "ommlx"
+name = "omlx"
 
 capabilities = {
     "text": True,
@@ -110,9 +110,9 @@ def _post(path: str, body: dict, timeout: float | None = None) -> Any:
         with urllib.request.urlopen(req, timeout=timeout or settings.timeout_s) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as e:
-        raise OmmlxBackendError(e.code, e.read().decode(errors="replace")[:400], path) from e
+        raise OmlxBackendError(e.code, e.read().decode(errors="replace")[:400], path) from e
     except (urllib.error.URLError, TimeoutError) as e:
-        raise OmmlxBackendError(
+        raise OmlxBackendError(
             0, f"unreachable ({e}); check OMLX_BASE_URL={settings.resolved_base_url()!r}", path
         ) from e
 
@@ -267,7 +267,7 @@ def embed_video(
     mean -- the standard proxy for shot-level retrieval on eg2.
     """
     if not shutil.which("ffmpeg"):
-        raise OmmlxBackendError(0, "ffmpeg not found; required for omlx video support")
+        raise OmlxBackendError(0, "ffmpeg not found; required for omlx video support")
     p = Path(path)
     with tempfile.TemporaryDirectory(prefix="eg2_vid_") as td:
         out = Path(td) / "f%03d.jpg"
@@ -279,7 +279,7 @@ def embed_video(
         subprocess.run(cmd, check=True, capture_output=True)
         frames = sorted(Path(td).glob("f*.jpg"))
         if not frames:
-            raise OmmlxBackendError(0, f"ffmpeg produced no frames for {p.name}")
+            raise OmlxBackendError(0, f"ffmpeg produced no frames for {p.name}")
         vecs = embed_many([{"image": f} for f in frames], dim=dim)
     mean = [sum(col) / len(vecs) for col in zip(*vecs)]
     norm = sum(x * x for x in mean) ** 0.5 or 1.0
